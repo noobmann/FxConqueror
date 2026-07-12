@@ -146,7 +146,6 @@ const App: React.FC = () => {
 
   // Server Fetch States
   const [botStatus, setBotStatus] = useState<BotStatus | null>(null);
-  const [publicGuildName, setPublicGuildName] = useState<string>('Fx Conquerors');
   const [channels, setChannels] = useState<DiscordChannel[]>([]);
   const [roles, setRoles] = useState<DiscordRole[]>([]);
   const [members, setMembers] = useState<GuildMember[]>([]);
@@ -241,17 +240,6 @@ const App: React.FC = () => {
     localStorage.setItem('theme', theme);
   }, [theme]);
 
-  // Public status fetch on mount
-  useEffect(() => {
-    fetch(`${API_BASE}/public/status`)
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.guildName) {
-          setPublicGuildName(data.guildName);
-        }
-      })
-      .catch(err => console.error('Failed to fetch public status:', err));
-  }, []);
 
   // Initial fetch and poll intervals
   useEffect(() => {
