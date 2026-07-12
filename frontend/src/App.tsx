@@ -1602,11 +1602,10 @@ const App: React.FC = () => {
                   padding: '16px 20px', borderRadius: '8px', maxWidth: '600px', marginBottom: '1.5rem'
                 }}>
                   <h4 style={{ margin: '0 0 5px 0', fontSize: '0.925rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    🔑 Moderator's Personal Gemini API Key
+                    🔑 Gemini API Key Configuration
                   </h4>
                   <p style={{ margin: '0 0 12px 0', fontSize: '0.785rem', color: 'var(--text-secondary)' }}>
-                    Baki moderators se apna token protect karne ke liye aap yahan apni personal key configure kar sakte hain. 
-                    Yeh key sirf aapke browser me local store rahegi aur kisi mod ke sath share nahi hogi.
+                    AI features (jaise automatic channel suggestions aur renames) ko utilize karne ke liye yahan apni personal Gemini API Key paste karein. Yeh key aapke browser me locally save rahegi.
                   </p>
                   
                   <div style={{ display: 'flex', gap: '8px' }}>
