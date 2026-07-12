@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { client, activityLogs, updateChannelSlowmode, addLog, reconnectBot } from '../bot/bot';
+import { client, activityLogs, updateChannelSlowmode, addLog } from '../bot/bot';
 import { getDb, saveDb, WarningRecord } from '../utils/db';
 import { TextChannel, PermissionsBitField } from 'discord.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -420,6 +420,8 @@ router.post('/ai/suggest-sorting', async (req: Request, res: Response) => {
     return res.status(404).json({ error: 'Guild connection not active' });
   }
 
+  const { geminiApiKey } = req.body;
+
   try {
     const channels = await guild.channels.fetch();
     const sortedChannels = channels
@@ -434,8 +436,7 @@ router.post('/ai/suggest-sorting', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'No text or voice channels found in server to organize.' });
     }
 
-    const db = getDb();
-    const apiKey = db.credentials?.geminiApiKey || process.env.GEMINI_API_KEY;
+    const apiKey = geminiApiKey || process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
       addLog('GEMINI_API_KEY is not configured. Serving mock channel sorting.', 'warn');
@@ -486,7 +487,7 @@ router.post('/ai/suggest-sorting', async (req: Request, res: Response) => {
 
       return res.json({
         suggestion: mockSuggestion,
-        note: 'Mock grouping served. Add GEMINI_API_KEY in backend/.env for custom AI sorting.'
+        note: 'Mock grouping served. Add GEMINI_API_KEY in backend/.env or input your personal AI key to use custom AI sorting.'
       });
     }
 
@@ -658,13 +659,12 @@ router.post('/ai/apply-sorting', async (req: Request, res: Response) => {
 
 // AI rename individual existing channel
 router.post('/ai/rename-channel', async (req: Request, res: Response) => {
-  const { channelId, prompt } = req.body;
+  const { channelId, prompt, geminiApiKey } = req.body;
   if (!channelId || !prompt) {
     return res.status(400).json({ error: 'Missing channelId or prompt' });
   }
 
-  const db = getDb();
-  const apiKey = db.credentials?.geminiApiKey || process.env.GEMINI_API_KEY;
+  const apiKey = geminiApiKey || process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
     try {
@@ -786,43 +786,6 @@ router.post('/broadcaster/post', async (req: Request, res: Response) => {
     addLog(`Broadcaster failed: ${err.message}`, 'error');
     res.status(500).json({ error: `Failed to broadcast message: ${err.message}` });
   }
-});
-
-// ----------------------------------------------------
-// DYNAMIC BOT CREDENTIALS HANDLERS
-// ----------------------------------------------------
-router.get('/settings/credentials', (req: Request, res: Response) => {
-  const db = getDb();
-  res.json({
-    discordTokenConfigured: !!db.credentials?.discordToken,
-    geminiApiKeyConfigured: !!db.credentials?.geminiApiKey
-  });
-});
-
-router.post('/settings/credentials', async (req: Request, res: Response) => {
-  const { discordToken, geminiApiKey } = req.body;
-  const db = getDb();
-  const oldToken = db.credentials?.discordToken || '';
-
-  db.credentials = {
-    discordToken: discordToken || '',
-    geminiApiKey: geminiApiKey || ''
-  };
-  saveDb(db);
-
-  if (discordToken && discordToken !== oldToken) {
-    try {
-      await reconnectBot(discordToken);
-    } catch (err: any) {
-      return res.status(400).json({ error: `Bot reconnection failed: ${err.message}` });
-    }
-  }
-
-  res.json({
-    message: 'Credentials updated successfully!',
-    discordTokenConfigured: !!discordToken,
-    geminiApiKeyConfigured: !!geminiApiKey
-  });
 });
 
 export default router;

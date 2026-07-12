@@ -207,6 +207,12 @@ const App: React.FC = () => {
   const [removeDuplicates, setRemoveDuplicates] = useState<boolean>(true);
   const [createMissing, setCreateMissing] = useState<boolean>(false);
 
+  // Local Moderator's personal Gemini API key (saved locally in browser localStorage)
+  const [geminiApiKey, setGeminiApiKey] = useState<string>(() => {
+    return localStorage.getItem('gemini_api_key') || '';
+  });
+  const [showGeminiKey, setShowGeminiKey] = useState<boolean>(false);
+
   // Tab 8: Broadcaster States
   const [broadcasterChannelId, setBroadcasterChannelId] = useState<string>('');
   const [broadcasterPostType, setBroadcasterPostType] = useState<'text' | 'embed' | 'poll'>('text');
@@ -220,15 +226,6 @@ const App: React.FC = () => {
   ]);
   const [broadcasterPollDuration, setBroadcasterPollDuration] = useState<number>(24);
   const [broadcasterLoading, setBroadcasterLoading] = useState<boolean>(false);
-
-  // Dynamic Credentials Setup States
-  const [customDiscordToken, setCustomDiscordToken] = useState<string>('');
-  const [customGeminiApiKey, setCustomGeminiApiKey] = useState<string>('');
-  const [showDiscordToken, setShowDiscordToken] = useState<boolean>(false);
-  const [showGeminiKey, setShowGeminiKey] = useState<boolean>(false);
-  const [discordTokenConfigured, setDiscordTokenConfigured] = useState<boolean>(false);
-  const [geminiApiKeyConfigured, setGeminiApiKeyConfigured] = useState<boolean>(false);
-  const [credentialsSaving, setCredentialsSaving] = useState<boolean>(false);
 
   // Alert Banner Status
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error' | null; msg: string | null }>({
@@ -343,18 +340,6 @@ const App: React.FC = () => {
       setBadWordsList(statusData.settings.autoMod?.badWordsList || []);
       setBlockLinks(statusData.settings.autoMod?.blockLinks || false);
       setBlockCaps(statusData.settings.autoMod?.blockCaps || false);
-
-      // Fetch dynamic credentials status
-      try {
-        const credRes = await fetchAuth(`${API_BASE}/settings/credentials`);
-        const credData = await credRes.json();
-        if (credRes.ok) {
-          setDiscordTokenConfigured(credData.discordTokenConfigured);
-          setGeminiApiKeyConfigured(credData.geminiApiKeyConfigured);
-        }
-      } catch (err) {
-        console.error('Failed to load credentials configuration status:', err);
-      }
 
       if (statusData.guildId) {
         const [channelsRes, rolesRes, membersRes, logsRes] = await Promise.all([
@@ -483,7 +468,11 @@ const App: React.FC = () => {
       const res = await fetchAuth(`${API_BASE}/ai/rename-channel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channelId, prompt })
+        body: JSON.stringify({ 
+          channelId, 
+          prompt,
+          geminiApiKey 
+        })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -682,7 +671,8 @@ const App: React.FC = () => {
     try {
       const res = await fetchAuth(`${API_BASE}/ai/suggest-sorting`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ geminiApiKey })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to analyze sorting');
@@ -782,65 +772,10 @@ const App: React.FC = () => {
     }
   };
 
-  // Handle Dynamic Credentials saving
-  const handleSaveCredentials = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCredentialsSaving(true);
-    try {
-      const res = await fetchAuth(`${API_BASE}/settings/credentials`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          discordToken: customDiscordToken,
-          geminiApiKey: customGeminiApiKey
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to update credentials');
-
-      setSaveStatus({ type: 'success', msg: data.message });
-      setTimeout(() => setSaveStatus({ type: null, msg: null }), 3000);
-      
-      setDiscordTokenConfigured(data.discordTokenConfigured);
-      setGeminiApiKeyConfigured(data.geminiApiKeyConfigured);
-
-      // Clear input fields
-      setCustomDiscordToken('');
-      setCustomGeminiApiKey('');
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setCredentialsSaving(false);
-    }
-  };
-
-  const handleResetCredentials = async () => {
-    const confirm = window.confirm('Are you sure you want to delete custom credentials and revert to default .env keys? The bot will reconnect.');
-    if (!confirm) return;
-
-    setCredentialsSaving(true);
-    try {
-      const res = await fetchAuth(`${API_BASE}/settings/credentials`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          discordToken: '',
-          geminiApiKey: ''
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      setSaveStatus({ type: 'success', msg: 'Credentials reset back to defaults!' });
-      setTimeout(() => setSaveStatus({ type: null, msg: null }), 3000);
-
-      setDiscordTokenConfigured(false);
-      setGeminiApiKeyConfigured(false);
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setCredentialsSaving(false);
-    }
+  // Local storage save for personal gemini API key
+  const handleSaveGeminiKey = (val: string) => {
+    setGeminiApiKey(val);
+    localStorage.setItem('gemini_api_key', val);
   };
 
   const slowmodeLabel = (sec: number) => {
@@ -1142,92 +1077,6 @@ const App: React.FC = () => {
                       ))
                     )}
                     <div ref={logsEndRef} />
-                  </div>
-                </div>
-              </div>
-
-              {/* Dynamic Credentials setup panel */}
-              <div className="glass-panel" style={{ marginTop: '20px' }}>
-                <h2 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--panel-border)', paddingBottom: '8px' }}>
-                  🔑 Custom Bot Credentials & Keys Setup
-                </h2>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
-                  Yahan aap bot ke custom tokens configure kar sakte hain taaki public repo push karte waqt secrets leak na hon. 
-                  Credentials save karne par bot dynamic connection restart trigger karega.
-                </p>
-
-                <div className="grid-2">
-                  <form onSubmit={handleSaveCredentials} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                    <div className="form-group">
-                      <label>Discord Bot Token</label>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <input 
-                          type={showDiscordToken ? "text" : "password"} 
-                          className="form-input" 
-                          placeholder={discordTokenConfigured ? "●●●●●●●● (Configured)" : "Paste new Discord Bot Token..."} 
-                          value={customDiscordToken}
-                          onChange={(e) => setCustomDiscordToken(e.target.value)}
-                        />
-                        <button 
-                          type="button" 
-                          className="btn btn-secondary" 
-                          style={{ padding: '8px 12px' }}
-                          onClick={() => setShowDiscordToken(!showDiscordToken)}
-                        >
-                          {showDiscordToken ? "👁️" : "🙈"}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="form-group">
-                      <label>Gemini API Key</label>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <input 
-                          type={showGeminiKey ? "text" : "password"} 
-                          className="form-input" 
-                          placeholder={geminiApiKeyConfigured ? "●●●●●●●● (Configured)" : "Paste new Gemini API Key..."} 
-                          value={customGeminiApiKey}
-                          onChange={(e) => setCustomGeminiApiKey(e.target.value)}
-                        />
-                        <button 
-                          type="button" 
-                          className="btn btn-secondary" 
-                          style={{ padding: '8px 12px' }}
-                          onClick={() => setShowGeminiKey(!showGeminiKey)}
-                        >
-                          {showGeminiKey ? "👁️" : "🙈"}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                      <button type="submit" className="btn" disabled={credentialsSaving}>
-                        {credentialsSaving ? '💾 Saving...' : '💾 Save & Connect Credentials'}
-                      </button>
-                      {(discordTokenConfigured || geminiApiKeyConfigured) && (
-                        <button type="button" className="btn btn-secondary btn-danger" onClick={handleResetCredentials} disabled={credentialsSaving}>
-                          🧹 Reset to Defaults
-                        </button>
-                      )}
-                    </div>
-                  </form>
-
-                  <div style={{ background: 'rgba(0,0,0,0.02)', border: '1px solid var(--panel-border)', padding: '20px', borderRadius: '10px', height: 'fit-content' }}>
-                    <h3 style={{ marginBottom: '10px' }}>Active Server Config Status</h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '15px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--panel-border)', paddingBottom: '6px' }}>
-                        <span>Bot Token Status:</span>
-                        <span style={{ fontWeight: 600, color: discordTokenConfigured ? 'var(--accent-green)' : 'var(--text-muted)' }}>
-                          {discordTokenConfigured ? '🟢 Using Custom Token' : '⚪ Using Default Env Token'}
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '6px' }}>
-                        <span>Gemini API Status:</span>
-                        <span style={{ fontWeight: 600, color: geminiApiKeyConfigured ? 'var(--accent-green)' : 'var(--text-muted)' }}>
-                          {geminiApiKeyConfigured ? '🟢 Using Custom Key' : '⚪ Using Default Env Key'}
-                        </span>
-                      </div>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -1740,17 +1589,60 @@ const App: React.FC = () => {
           {/* TAB CONTENT: AI Server Organizer */}
           {activeTab === 'aiHub' && (
             <div className="glass-panel">
-              <div style={{ marginBottom: '2rem', borderBottom: '1px solid var(--panel-border)', paddingBottom: '12px' }}>
+              <div style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--panel-border)', paddingBottom: '12px' }}>
                 <h2>🤖 AI Server Organizer & Channel Sorter</h2>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', lineHeight: '1.5' }}>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', lineHeight: '1.5', marginBottom: '1rem' }}>
                   Is your Discord server messy with text and voice channels scattered everywhere? 
-                  Click <b>"Analyze & Suggest Layout"</b> below. AI will look at all your existing channels, design logical category groups, and organize your channel list perfectly.
+                  AI will look at all your existing channels, design logical category groups, and organize your channel list perfectly.
                 </p>
+
+                {/* MODERATOR'S PERSONAL GEMINI KEY CONFIG (Stored only in local browser) */}
+                <div style={{
+                  background: 'rgba(37, 99, 235, 0.05)', border: '1px solid rgba(37, 99, 235, 0.15)',
+                  padding: '16px 20px', borderRadius: '8px', maxWidth: '600px', marginBottom: '1.5rem'
+                }}>
+                  <h4 style={{ margin: '0 0 5px 0', fontSize: '0.925rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    🔑 Moderator's Personal Gemini API Key
+                  </h4>
+                  <p style={{ margin: '0 0 12px 0', fontSize: '0.785rem', color: 'var(--text-secondary)' }}>
+                    Baki moderators se apna token protect karne ke liye aap yahan apni personal key configure kar sakte hain. 
+                    Yeh key sirf aapke browser me local store rahegi aur kisi mod ke sath share nahi hogi.
+                  </p>
+                  
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input 
+                      type={showGeminiKey ? "text" : "password"} 
+                      className="form-input" 
+                      style={{ padding: '8px 12px', fontSize: '0.875rem' }}
+                      placeholder={geminiApiKey ? "●●●●●●●● (Personal Key Saved)" : "Paste your personal Gemini API Key..."} 
+                      value={geminiApiKey}
+                      onChange={(e) => handleSaveGeminiKey(e.target.value)}
+                    />
+                    <button 
+                      type="button" 
+                      className="btn btn-secondary" 
+                      style={{ padding: '8px 12px' }}
+                      onClick={() => setShowGeminiKey(!showGeminiKey)}
+                    >
+                      {showGeminiKey ? "👁️" : "🙈"}
+                    </button>
+                    {geminiApiKey && (
+                      <button 
+                        type="button" 
+                        className="btn btn-danger" 
+                        style={{ padding: '8px 12px' }}
+                        onClick={() => handleSaveGeminiKey('')}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', alignItems: 'center', justifyContent: 'center', minHeight: '300px' }}>
                 {!aiLoading && !aiSortingSuggestions && (
-                  <div style={{ textAlign: 'center', padding: '40px' }}>
+                  <div style={{ textAlign: 'center', padding: '20px' }}>
                     <div style={{ fontSize: '4.5rem', marginBottom: '20px' }}>📁✨</div>
                     <h3 style={{ marginBottom: '10px' }}>Organize Server Instantly</h3>
                     <p style={{ color: 'var(--text-secondary)', marginBottom: '30px', maxWidth: '500px' }}>

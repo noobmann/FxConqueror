@@ -28,8 +28,7 @@ async function bootstrap() {
   // 1. Initialize Database (MongoDB Atlas / local file fallback)
   await initDbConnection();
 
-  const db = getDb();
-  const activeToken = db.credentials?.discordToken || process.env.DISCORD_TOKEN;
+  const activeToken = process.env.DISCORD_TOKEN;
 
   // 2. Start Express Server
   app.listen(PORT, () => {
@@ -38,7 +37,7 @@ async function bootstrap() {
 
   // 3. Login Discord Bot
   if (!activeToken) {
-    addLog('No Discord Bot Token found in database or .env. Bot will not start!', 'error');
+    addLog('DISCORD_TOKEN is missing in the env. Bot will not start!', 'error');
   } else {
     client.login(activeToken).catch((err) => {
       addLog(`Failed to login Discord Bot: ${err.message}`, 'error');
