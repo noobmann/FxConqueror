@@ -6,7 +6,31 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const router = Router();
 
-const sessions = new Set<string>();
+// Multi-server session store: token -> guildId
+const sessions = new Map<string, string>();
+
+// Build admin accounts from environment variables
+function getAdminAccounts() {
+  const accounts: Array<{ username: string; password: string; guildId: string }> = [];
+  const username = process.env.ADMIN_USERNAME || 'admin';
+
+  if (process.env.ADMIN_PASSWORD) {
+    accounts.push({ username, password: process.env.ADMIN_PASSWORD, guildId: process.env.GUILD_ID || '' });
+  }
+  if (process.env.ADMIN_PASSWORD_2) {
+    accounts.push({ username, password: process.env.ADMIN_PASSWORD_2, guildId: process.env.GUILD_ID_2 || '' });
+  }
+  if (process.env.ADMIN_PASSWORD_3) {
+    accounts.push({ username, password: process.env.ADMIN_PASSWORD_3, guildId: process.env.GUILD_ID_3 || '' });
+  }
+
+  // Fallback default if no env vars set
+  if (accounts.length === 0) {
+    accounts.push({ username: 'admin', password: 'conquerors123', guildId: '' });
+  }
+
+  return accounts;
+}
 
 function authMiddleware(req: Request, res: Response, next: NextFunction) {
   if (req.path === '/auth/login' || req.path === '/public/status') {
@@ -20,6 +44,7 @@ function authMiddleware(req: Request, res: Response, next: NextFunction) {
 
   const token = authHeader.split(' ')[1];
   if (sessions.has(token)) {
+    (req as any).guildId = sessions.get(token);
     return next();
   }
   return res.status(401).json({ error: 'Unauthorized access: Invalid session token' });
@@ -27,8 +52,12 @@ function authMiddleware(req: Request, res: Response, next: NextFunction) {
 
 router.use(authMiddleware);
 
-// Find the target Guild by ID or name search (Fx Conquerors), falling back to first guild in cache
-function getGuild() {
+// Find the target Guild by ID, name search, or fallback to first guild
+function getGuild(guildId?: string) {
+  if (guildId) {
+    const target = client.guilds.cache.get(guildId);
+    if (target) return target;
+  }
   if (process.env.GUILD_ID) {
     const target = client.guilds.cache.get(process.env.GUILD_ID);
     if (target) return target;
@@ -43,14 +72,15 @@ function getGuild() {
 // ----------------------------------------------------
 router.post('/auth/login', (req: Request, res: Response) => {
   const { username, password } = req.body;
-  const envUser = process.env.ADMIN_USERNAME || 'admin';
-  const envPass = process.env.ADMIN_PASSWORD || 'conquerors123';
+  const accounts = getAdminAccounts();
 
-  if (username === envUser && password === envPass) {
+  const matched = accounts.find(a => a.username === username && a.password === password);
+  if (matched) {
     const token = Math.random().toString(36).substr(2) + Math.random().toString(36).substr(2);
-    sessions.add(token);
-    addLog(`Successful login via Web Dashboard from admin`, 'info');
-    return res.json({ token });
+    sessions.set(token, matched.guildId);
+    const guild = getGuild(matched.guildId);
+    addLog(`Successful login via Web Dashboard → ${guild?.name || 'Default Server'}`, 'info');
+    return res.json({ token, guildName: guild?.name || 'Fx Conquerors' });
   }
   
   addLog(`Failed login attempt for user "${username}" from dashboard`, 'warn');
@@ -58,7 +88,7 @@ router.post('/auth/login', (req: Request, res: Response) => {
 });
 
 router.get('/public/status', (req: Request, res: Response) => {
-  const guild = getGuild();
+  const guild = getGuild((req as any).guildId);
   res.json({
     online: client.isReady(),
     guildName: guild?.name || 'Fx Conquerors',
@@ -72,7 +102,7 @@ router.get('/public/status', (req: Request, res: Response) => {
 
 router.get('/status', (req: Request, res: Response) => {
   const db = getDb();
-  const guild = getGuild();
+  const guild = getGuild((req as any).guildId);
 
   res.json({
     online: client.isReady(),
@@ -86,7 +116,7 @@ router.get('/status', (req: Request, res: Response) => {
 });
 
 router.get('/guild/channels', async (req: Request, res: Response) => {
-  const guild = getGuild();
+  const guild = getGuild((req as any).guildId);
   if (!guild) {
     return res.json([]);
   }
@@ -108,7 +138,7 @@ router.get('/guild/channels', async (req: Request, res: Response) => {
 });
 
 router.get('/guild/roles', async (req: Request, res: Response) => {
-  const guild = getGuild();
+  const guild = getGuild((req as any).guildId);
   if (!guild) {
     return res.json([]);
   }
@@ -264,7 +294,7 @@ router.get('/logs', (req: Request, res: Response) => {
 });
 
 router.get('/guild/members', async (req: Request, res: Response) => {
-  const guild = getGuild();
+  const guild = getGuild((req as any).guildId);
   if (!guild) {
     return res.json([]);
   }
@@ -370,7 +400,7 @@ router.post('/moderation/kick', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Missing userId' });
   }
 
-  const guild = getGuild();
+  const guild = getGuild((req as any).guildId);
   if (!guild) {
     return res.status(404).json({ error: 'Guild connection not available' });
   }
@@ -396,7 +426,7 @@ router.post('/moderation/ban', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Missing userId' });
   }
 
-  const guild = getGuild();
+  const guild = getGuild((req as any).guildId);
   if (!guild) {
     return res.status(404).json({ error: 'Guild connection not available' });
   }
@@ -419,7 +449,7 @@ router.post('/moderation/ban', async (req: Request, res: Response) => {
 
 // AI suggest sorting of existing channels & recommend missing ones
 router.post('/ai/suggest-sorting', async (req: Request, res: Response) => {
-  const guild = getGuild();
+  const guild = getGuild((req as any).guildId);
   if (!guild) {
     return res.status(404).json({ error: 'Guild connection not active' });
   }
@@ -549,7 +579,7 @@ router.post('/ai/apply-sorting', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Invalid sorting layout structure' });
   }
 
-  const guild = getGuild();
+  const guild = getGuild((req as any).guildId);
   if (!guild) {
     return res.status(404).json({ error: 'Guild connection not available' });
   }
@@ -723,7 +753,7 @@ router.post('/broadcaster/post', async (req: Request, res: Response) => {
   }
 
   try {
-    const guild = getGuild();
+    const guild = getGuild((req as any).guildId);
     if (!guild) {
       return res.status(404).json({ error: 'Guild not connected' });
     }
