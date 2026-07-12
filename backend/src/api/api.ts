@@ -27,8 +27,12 @@ function authMiddleware(req: Request, res: Response, next: NextFunction) {
 
 router.use(authMiddleware);
 
-// Find the target Guild by name search (Fx Conquerors), falling back to first guild in cache
+// Find the target Guild by ID or name search (Fx Conquerors), falling back to first guild in cache
 function getGuild() {
+  if (process.env.GUILD_ID) {
+    const target = client.guilds.cache.get(process.env.GUILD_ID);
+    if (target) return target;
+  }
   const target = client.guilds.cache.find(g => g.name.toLowerCase().includes('conqueror'));
   if (target) return target;
   return client.guilds.cache.first();
