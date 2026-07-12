@@ -1,0 +1,19 @@
+# Ignore Node modules
+**/node_modules/
+
+# Ignore local env variables
+**/.env
+**/.env.local
+
+# Ignore build artifacts
+**/dist/
+**/build/
+.cache/
+
+# Ignore database backups / local database.json
+**/database.json
+
+# Lockfiles
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
