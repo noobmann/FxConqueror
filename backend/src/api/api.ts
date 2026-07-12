@@ -54,10 +54,11 @@ router.use(authMiddleware);
 
 // Find the target Guild by ID, name search, or fallback to first guild
 function getGuild(guildId?: string) {
+  // If a specific guildId is provided (from login session), only return that guild
   if (guildId) {
-    const target = client.guilds.cache.get(guildId);
-    if (target) return target;
+    return client.guilds.cache.get(guildId) || undefined;
   }
+  // Fallback logic only when no specific guildId is set
   if (process.env.GUILD_ID) {
     const target = client.guilds.cache.get(process.env.GUILD_ID);
     if (target) return target;
