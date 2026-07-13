@@ -660,8 +660,11 @@ router.post('/ai/apply-sorting', async (req: Request, res: Response) => {
 
             if (!exists) {
               try {
+                const cleanChanName = channelObj.type === 0
+                  ? channelObj.name.toLowerCase().replace(/\s+/g, '-')
+                  : channelObj.name;
                 const newChan = await guild.channels.create({
-                  name: channelObj.name,
+                  name: cleanChanName,
                   type: channelObj.type,
                   parent: categoryChannel.id
                 });
@@ -678,7 +681,11 @@ router.post('/ai/apply-sorting', async (req: Request, res: Response) => {
               await (channel as any).setParent(categoryChannel.id, { lockPermissions: false });
               
               // If name has changed (e.g. AI appended an emoji), rename it!
-              const cleanTargetName = channelObj.name.toLowerCase().replace(/\s+/g, '-');
+              // Only enforce lowercase/hyphenation for text channels (type 0 or 5)
+              const cleanTargetName = (channel.type === 0 || channel.type === 5)
+                ? channelObj.name.toLowerCase().replace(/\s+/g, '-')
+                : channelObj.name;
+                
               if (channel.name !== cleanTargetName) {
                 const oldName = channel.name;
                 await (channel as any).setName(cleanTargetName);

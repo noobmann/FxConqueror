@@ -153,6 +153,7 @@ const App: React.FC = () => {
 
   // Navigation State
   const [activeTab, setActiveTab] = useState<'overview' | 'moderation' | 'welcome' | 'levels' | 'automod' | 'triggers' | 'aiHub' | 'broadcaster'>('overview');
+  const [mobileMoreOpen, setMobileMoreOpen] = useState<boolean>(false);
 
   // Server Fetch States
   const [botStatus, setBotStatus] = useState<BotStatus | null>(null);
@@ -966,6 +967,14 @@ const App: React.FC = () => {
             <button className={`sidebar-btn ${activeTab === 'broadcaster' ? 'active' : ''}`} onClick={() => setActiveTab('broadcaster')}>
               📢 <span>Server Broadcaster</span>
             </button>
+            <button
+              className={`sidebar-btn mobile-more-btn ${mobileMoreOpen ? 'active' : ''}`}
+              onClick={() => setMobileMoreOpen(!mobileMoreOpen)}
+              aria-expanded={mobileMoreOpen}
+              aria-controls="mobile-more-menu"
+            >
+              &hellip; <span>More</span>
+            </button>
           </nav>
         </div>
 
@@ -993,6 +1002,34 @@ const App: React.FC = () => {
           </button>
         </div>
       </aside>
+
+      {mobileMoreOpen && (
+        <div className="mobile-more-layer" id="mobile-more-menu" role="dialog" aria-label="More dashboard options">
+          <button className="mobile-more-backdrop" aria-label="Close menu" onClick={() => setMobileMoreOpen(false)} />
+          <section className="mobile-more-sheet">
+            <div className="mobile-sheet-handle" />
+            <div className="mobile-sheet-header">
+              <div>
+                <p>Dashboard tools</p>
+                <h3>More options</h3>
+              </div>
+              <button className="mobile-sheet-close" onClick={() => setMobileMoreOpen(false)} aria-label="Close menu">×</button>
+            </div>
+            <div className="mobile-more-grid">
+              <button onClick={() => { setActiveTab('automod'); setMobileMoreOpen(false); }}>Auto-mod <span>Auto-Moderation</span></button>
+              <button onClick={() => { setActiveTab('triggers'); setMobileMoreOpen(false); }}>Triggers <span>Custom Triggers</span></button>
+              <button onClick={() => { setActiveTab('aiHub'); setMobileMoreOpen(false); }}>AI <span>AI Organizer</span></button>
+              <button onClick={() => { setActiveTab('broadcaster'); setMobileMoreOpen(false); }}>Post <span>Broadcaster</span></button>
+            </div>
+            <div className="mobile-sheet-actions">
+              <button className="btn btn-secondary" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
+                {theme === 'light' ? 'Dark mode' : 'Light mode'}
+              </button>
+              <button className="btn btn-danger" onClick={handleLogout}>Log out</button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {/* Right Content Area */}
       <main className="main-content">
