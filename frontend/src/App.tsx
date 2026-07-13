@@ -50,6 +50,15 @@ interface WarningRecord {
   timestamp: string;
 }
 
+interface VerificationSettings {
+  enabled: boolean;
+  channelId: string;
+  roleId: string;
+  embedTitle: string;
+  embedDescription: string;
+  embedColor: string;
+}
+
 interface DatabaseSchema {
   photoOnlyChannels: string[];
   slowmodeChannels: Record<string, number>;
@@ -60,6 +69,7 @@ interface DatabaseSchema {
   auditLogChannelId: string;
   levelingSettings: LevelingSettings;
   autoMod: AutoModSettings;
+  verificationSettings?: VerificationSettings;
 }
 
 interface BotStatus {
@@ -526,21 +536,6 @@ const App: React.FC = () => {
     handleSave(`${API_BASE}/settings/leveling`, { enabled: levelingEnabled, levelUpMessage, roleRewards }, 'Leveling settings updated!');
   };
 
-  const addLevelReward = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!rewardRoleId) return;
-    const updated = [...roleRewards, { level: rewardLevel, roleId: rewardRoleId }];
-    setRoleRewards(updated);
-    setRewardLevel(1);
-    setRewardRoleId('');
-    handleSave(`${API_BASE}/settings/leveling`, { enabled: levelingEnabled, levelUpMessage, roleRewards: updated }, 'Level role reward added!');
-  };
-
-  const deleteLevelReward = (index: number) => {
-    const updated = roleRewards.filter((_, i) => i !== index);
-    setRoleRewards(updated);
-    handleSave(`${API_BASE}/settings/leveling`, { enabled: levelingEnabled, levelUpMessage, roleRewards: updated }, 'Level role reward deleted.');
-  };
 
   const handleWebWarn = async (userId: string, username: string) => {
     const reason = window.prompt(`Enter warning reason for @${username}:`, 'Rules Violation');
