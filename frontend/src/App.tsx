@@ -191,8 +191,6 @@ const App: React.FC = () => {
   const [levelingEnabled, setLevelingEnabled] = useState<boolean>(false);
   const [levelUpMessage, setLevelUpMessage] = useState<string>('');
   const [roleRewards, setRoleRewards] = useState<LevelReward[]>([]);
-  const [rewardLevel, setRewardLevel] = useState<number>(1);
-  const [rewardRoleId, setRewardRoleId] = useState<string>('');
   const [selectedUserWarnings, setSelectedUserWarnings] = useState<{ username: string; id: string; list: WarningRecord[] } | null>(null);
 
   // Tab 5: AutoMod States
