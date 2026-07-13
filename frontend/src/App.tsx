@@ -205,9 +205,10 @@ const App: React.FC = () => {
   const [blockCaps, setBlockCaps] = useState<boolean>(false);
   const [newBadWord, setNewBadWord] = useState<string>('');
   const [selectedRoleId, setSelectedRoleId] = useState<string>('');
+  const [newRoleName, setNewRoleName] = useState<string>('');
   const [roleName, setRoleName] = useState<string>('');
   const [roleColor, setRoleColor] = useState<string>('#5865f2');
-  const [roleMemberId, setRoleMemberId] = useState<string>('');
+  const [replaceFromRoleId, setReplaceFromRoleId] = useState<string>('');
   const [replaceRoleId, setReplaceRoleId] = useState<string>('');
   const [roleLoading, setRoleLoading] = useState<boolean>(false);
   const [roleAdvice, setRoleAdvice] = useState<string>('');
@@ -1697,22 +1698,22 @@ const App: React.FC = () => {
           {activeTab === 'roles' && (
             <div className="grid-2" style={{ gridTemplateColumns: '1fr 1.4fr' }}>
               <div className="glass-panel">
-                <h2 style={{ marginBottom: '6px' }}>Role Editor</h2>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '14px' }}>Protected founder, owner and bot roles cannot be edited here.</p>
-                <div className="form-group"><label>Select role</label><select className="form-select" value={selectedRoleId} onChange={e => selectRole(e.target.value)}><option value="">-- Select role --</option>{roles.map(role => <option key={role.id} value={role.id}>{role.name} ({role.memberCount} members){role.protected ? ' - protected' : ''}</option>)}</select></div>
-                <div className="form-group"><label>Role name</label><input className="form-input" value={roleName} onChange={e => setRoleName(e.target.value)} placeholder="New role name" /></div>
+                <h2 style={{ marginBottom: '14px' }}>Create new role</h2>
+                <div className="form-group"><label>New role name</label><input className="form-input" value={newRoleName} onChange={e => setNewRoleName(e.target.value)} placeholder="Example: London Session" /></div>
                 <div className="form-group"><label>Role color</label><input type="color" value={roleColor} onChange={e => setRoleColor(e.target.value)} /></div>
-                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                  <button className="btn" disabled={roleLoading || !roleName.trim()} onClick={() => runRoleAction(selectedRoleId ? '/roles/update' : '/roles/create', selectedRoleId ? { roleId: selectedRoleId, name: roleName, color: roleColor } : { name: roleName, color: roleColor })}>{selectedRoleId ? 'Save role' : 'Create role'}</button>
-                  {selectedRoleId && <button className="btn btn-danger" disabled={roleLoading || selectedRole?.protected} onClick={() => { if (window.confirm(`Delete ${selectedRole?.name}? This cannot be undone.`)) runRoleAction('/roles/delete', { roleId: selectedRoleId }); }}>Delete role</button>}
+                <button className="btn" disabled={roleLoading || !newRoleName.trim()} onClick={() => runRoleAction('/roles/create', { name: newRoleName, color: roleColor }).then(() => setNewRoleName(''))}>Create new role</button>
+                <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--panel-border)' }}>
+                  <h3 style={{ marginBottom: '10px' }}>Edit or delete an old role</h3>
+                  <div className="form-group"><label>Old role</label><select className="form-select" value={selectedRoleId} onChange={e => selectRole(e.target.value)}><option value="">-- Select old role --</option>{roles.map(role => <option key={role.id} value={role.id}>{role.name} ({role.memberCount} members){role.protected ? ' - protected' : ''}</option>)}</select></div>
+                  {selectedRoleId && <><div className="form-group"><label>Rename role</label><input className="form-input" value={roleName} onChange={e => setRoleName(e.target.value)} /></div><div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}><button className="btn btn-secondary" disabled={roleLoading || selectedRole?.protected || !roleName.trim()} onClick={() => runRoleAction('/roles/update', { roleId: selectedRoleId, name: roleName, color: roleColor })}>Save changes</button><button className="btn btn-danger" disabled={roleLoading || selectedRole?.protected} onClick={() => { if (window.confirm(`Delete ${selectedRole?.name}? This cannot be undone.`)) runRoleAction('/roles/delete', { roleId: selectedRoleId }); }}>Delete old role</button></div></>}
                 </div>
               </div>
               <div className="glass-panel">
-                <h3 style={{ marginBottom: '14px' }}>Members & cleanup</h3>
-                <div className="form-group"><label>Choose member</label><select className="form-select" value={roleMemberId} onChange={e => setRoleMemberId(e.target.value)}><option value="">-- Select member --</option>{members.map(member => <option key={member.id} value={member.id}>{member.tag}</option>)}</select></div>
-                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '20px' }}><button className="btn btn-secondary" disabled={roleLoading || !selectedRoleId || !roleMemberId || selectedRole?.protected} onClick={() => runRoleAction('/roles/member', { roleId: selectedRoleId, memberId: roleMemberId, action: 'add' })}>Add member</button><button className="btn btn-secondary" disabled={roleLoading || !selectedRoleId || !roleMemberId || selectedRole?.protected} onClick={() => runRoleAction('/roles/member', { roleId: selectedRoleId, memberId: roleMemberId, action: 'remove' })}>Remove member</button></div>
-                <div className="form-group"><label>Replace selected role with</label><select className="form-select" value={replaceRoleId} onChange={e => setReplaceRoleId(e.target.value)}><option value="">-- Replacement role --</option>{roles.filter(role => role.id !== selectedRoleId).map(role => <option key={role.id} value={role.id}>{role.name}</option>)}</select></div>
-                <button className="btn btn-secondary" disabled={roleLoading || !selectedRoleId || !replaceRoleId || selectedRole?.protected} onClick={() => { if (window.confirm('Replace this role for every member?')) runRoleAction('/roles/replace', { fromRoleId: selectedRoleId, toRoleId: replaceRoleId }); }}>Replace role for all members</button>
+                <h3 style={{ marginBottom: '6px' }}>Replace role for everyone</h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '14px' }}>Every member with the old role will receive the new role, and the old role will be removed.</p>
+                <div className="form-group"><label>Old role to replace</label><select className="form-select" value={replaceFromRoleId} onChange={e => setReplaceFromRoleId(e.target.value)}><option value="">-- Select old role --</option>{roles.map(role => <option key={role.id} value={role.id}>{role.name} ({role.memberCount} members)</option>)}</select></div>
+                <div className="form-group"><label>New replacement role</label><select className="form-select" value={replaceRoleId} onChange={e => setReplaceRoleId(e.target.value)}><option value="">-- Select new role --</option>{roles.filter(role => role.id !== replaceFromRoleId).map(role => <option key={role.id} value={role.id}>{role.name}</option>)}</select></div>
+                <button className="btn" disabled={roleLoading || !replaceFromRoleId || !replaceRoleId} onClick={() => { if (window.confirm('Replace this role for every member?')) runRoleAction('/roles/replace', { fromRoleId: replaceFromRoleId, toRoleId: replaceRoleId }); }}>Replace role for all members</button>
                 <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--panel-border)' }}><h3 style={{ marginBottom: '6px' }}>AI cleanup advice</h3><p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '10px' }}>Suggestions only—AI never edits roles automatically.</p><button className="btn" disabled={roleLoading} onClick={getAIRoleAdvice}>Ask AI to review roles</button>{roleAdvice && <pre className="logs-box" style={{ whiteSpace: 'pre-wrap', marginTop: '12px', maxHeight: '260px' }}>{roleAdvice}</pre>}</div>
               </div>
             </div>
