@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { client, activityLogs, updateChannelSlowmode, addLog } from '../bot/bot';
 import { getDb, saveDb, WarningRecord } from '../utils/db';
-import { TextChannel, PermissionsBitField, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { TextChannel, PermissionsBitField, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } from 'discord.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const router = Router();
@@ -777,7 +777,7 @@ router.post('/ai/rename-channel', async (req: Request, res: Response) => {
 // UNIVERSAL BROADCASTER / CHANNEL POSTER
 // ----------------------------------------------------
 router.post('/broadcaster/post', async (req: Request, res: Response) => {
-  const { channelId, postType, textContent, embedTitle, embedColor, pollQuestion, pollOptions, pollDuration, imageUrl } = req.body;
+  const { channelId, postType, textContent, embedTitle, embedColor, pollQuestion, pollOptions, pollDuration, imageUrl, imageBase64 } = req.body;
   if (!channelId || !postType) {
     return res.status(400).json({ error: 'Missing channelId or postType' });
   }
@@ -793,13 +793,33 @@ router.post('/broadcaster/post', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Text channel not found or not text-based' });
     }
 
+    let files: any[] = [];
+    let embedImageUrl = imageUrl;
+
+    if (imageBase64) {
+      const matches = imageBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+      if (matches && matches.length === 3) {
+        const type = matches[1];
+        const base64Data = matches[2];
+        const buffer = Buffer.from(base64Data, 'base64');
+        const extension = type.split('/')[1] || 'png';
+        const filename = `upload.${extension}`;
+        
+        const attachment = new AttachmentBuilder(buffer, { name: filename });
+        files.push(attachment);
+        embedImageUrl = `attachment://${filename}`;
+      }
+    }
+
     if (postType === 'text') {
-      if (!textContent && !imageUrl) {
-        return res.status(400).json({ error: 'Text content or image URL is required' });
+      if (!textContent && files.length === 0 && !imageUrl) {
+        return res.status(400).json({ error: 'Text content or image is required' });
       }
       const msgPayload: any = {};
       if (textContent) msgPayload.content = textContent;
-      if (imageUrl) {
+      if (files.length > 0) {
+        msgPayload.files = files;
+      } else if (imageUrl) {
         msgPayload.embeds = [{ image: { url: imageUrl }, color: 0x2f3136 }];
       }
       await (channel as any).send(msgPayload);
@@ -820,11 +840,16 @@ router.post('/broadcaster/post', async (req: Request, res: Response) => {
       if (embedTitle) {
         embed.title = embedTitle;
       }
-      if (imageUrl) {
-        embed.image = { url: imageUrl };
+      if (embedImageUrl) {
+        embed.image = { url: embedImageUrl };
       }
 
-      await (channel as any).send({ embeds: [embed] });
+      const msgPayload: any = { embeds: [embed] };
+      if (files.length > 0) {
+        msgPayload.files = files;
+      }
+
+      await (channel as any).send(msgPayload);
       addLog(`Broadcaster: Sent embed message to #${(channel as any).name}`, 'info');
       return res.json({ message: 'Rich Embed posted successfully!' });
     }

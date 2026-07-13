@@ -235,6 +235,8 @@ const App: React.FC = () => {
   const [broadcasterPollDuration, setBroadcasterPollDuration] = useState<number>(24);
   const [broadcasterLoading, setBroadcasterLoading] = useState<boolean>(false);
   const [broadcasterImageUrl, setBroadcasterImageUrl] = useState<string>('');
+  const [broadcasterImageBase64, setBroadcasterImageBase64] = useState<string>('');
+  const [broadcasterImageName, setBroadcasterImageName] = useState<string>('');
 
   // Verification System States
   const [verifyEnabled, setVerifyEnabled] = useState<boolean>(false);
@@ -750,7 +752,8 @@ const App: React.FC = () => {
           pollQuestion: broadcasterPollQuestion,
           pollOptions: filteredOptions,
           pollDuration: broadcasterPollDuration,
-          imageUrl: broadcasterImageUrl
+          imageUrl: broadcasterImageUrl,
+          imageBase64: broadcasterImageBase64
         })
       });
       const data = await res.json();
@@ -768,6 +771,8 @@ const App: React.FC = () => {
         { text: '', emoji: '' }
       ]);
       setBroadcasterImageUrl('');
+      setBroadcasterImageBase64('');
+      setBroadcasterImageName('');
     } catch (err: any) {
       alert(err.message);
     } finally {
@@ -1903,15 +1908,58 @@ const App: React.FC = () => {
                             onChange={(e) => setBroadcasterTextContent(e.target.value)} 
                           />
                         </div>
-                        <div className="form-group">
-                          <label>Image URL (Optional)</label>
-                          <input 
-                            type="url" 
-                            className="form-input" 
-                            placeholder="https://example.com/image.png" 
-                            value={broadcasterImageUrl} 
-                            onChange={(e) => setBroadcasterImageUrl(e.target.value)} 
-                          />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: 'rgba(0,0,0,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--panel-border)', marginBottom: '15px' }}>
+                          <div className="form-group" style={{ marginBottom: 0 }}>
+                            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span>📤 Upload Local Image (PC/Mobile)</span>
+                              {broadcasterImageBase64 && (
+                                <button 
+                                  type="button" 
+                                  style={{ color: 'var(--accent-red)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}
+                                  onClick={() => { setBroadcasterImageBase64(''); setBroadcasterImageName(''); }}
+                                >
+                                  Clear Image
+                                </button>
+                              )}
+                            </label>
+                            <input 
+                              type="file" 
+                              accept="image/*" 
+                              className="form-input"
+                              style={{ padding: '8px', fontSize: '0.85rem' }}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  setBroadcasterImageName(file.name);
+                                  const reader = new FileReader();
+                                  reader.onloadend = () => {
+                                    setBroadcasterImageBase64(reader.result as string);
+                                  };
+                                  reader.readAsDataURL(file);
+                                }
+                              }} 
+                            />
+                            {broadcasterImageBase64 && (
+                              <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <img src={broadcasterImageBase64} alt="Preview" style={{ maxWidth: '80px', maxHeight: '80px', borderRadius: '4px', border: '1px solid var(--panel-border)' }} />
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', wordBreak: 'break-all' }}>{broadcasterImageName}</span>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {!broadcasterImageBase64 && (
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                              <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Or provide Image URL</label>
+                              <input 
+                                type="url" 
+                                className="form-input" 
+                                style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                                placeholder="https://example.com/image.png" 
+                                value={broadcasterImageUrl} 
+                                onChange={(e) => setBroadcasterImageUrl(e.target.value)} 
+                              />
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -1952,15 +2000,58 @@ const App: React.FC = () => {
                             />
                           </label>
                         </div>
-                        <div className="form-group">
-                          <label>Embed Image URL (Optional)</label>
-                          <input 
-                            type="url" 
-                            className="form-input" 
-                            placeholder="https://example.com/image.png" 
-                            value={broadcasterImageUrl} 
-                            onChange={(e) => setBroadcasterImageUrl(e.target.value)} 
-                          />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: 'rgba(0,0,0,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--panel-border)', marginBottom: '15px' }}>
+                          <div className="form-group" style={{ marginBottom: 0 }}>
+                            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span>📤 Upload Local Image (PC/Mobile)</span>
+                              {broadcasterImageBase64 && (
+                                <button 
+                                  type="button" 
+                                  style={{ color: 'var(--accent-red)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}
+                                  onClick={() => { setBroadcasterImageBase64(''); setBroadcasterImageName(''); }}
+                                >
+                                  Clear Image
+                                </button>
+                              )}
+                            </label>
+                            <input 
+                              type="file" 
+                              accept="image/*" 
+                              className="form-input"
+                              style={{ padding: '8px', fontSize: '0.85rem' }}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  setBroadcasterImageName(file.name);
+                                  const reader = new FileReader();
+                                  reader.onloadend = () => {
+                                    setBroadcasterImageBase64(reader.result as string);
+                                  };
+                                  reader.readAsDataURL(file);
+                                }
+                              }} 
+                            />
+                            {broadcasterImageBase64 && (
+                              <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <img src={broadcasterImageBase64} alt="Preview" style={{ maxWidth: '80px', maxHeight: '80px', borderRadius: '4px', border: '1px solid var(--panel-border)' }} />
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', wordBreak: 'break-all' }}>{broadcasterImageName}</span>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {!broadcasterImageBase64 && (
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                              <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Or provide Image URL</label>
+                              <input 
+                                type="url" 
+                                className="form-input" 
+                                style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                                placeholder="https://example.com/image.png" 
+                                value={broadcasterImageUrl} 
+                                onChange={(e) => setBroadcasterImageUrl(e.target.value)} 
+                              />
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
