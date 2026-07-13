@@ -455,7 +455,7 @@ router.post('/ai/suggest-sorting', async (req: Request, res: Response) => {
     return res.status(404).json({ error: 'Guild connection not active' });
   }
 
-  const { geminiApiKey } = req.body;
+  const { geminiApiKey, autoEmoji } = req.body;
 
   try {
     const channels = await guild.channels.fetch();
@@ -481,7 +481,21 @@ router.post('/ai/suggest-sorting', async (req: Request, res: Response) => {
       const voiceIds: any[] = [];
 
       sortedChannels.forEach(ch => {
-        const item = { id: ch.id, name: ch.name, type: ch.type, isNew: false };
+        let cleanName = ch.name;
+        if (autoEmoji && !/^[^\w]/.test(cleanName)) {
+          if (ch.type === 2) {
+            cleanName = `🔊-${cleanName}`;
+          } else {
+            const n = ch.name.toLowerCase();
+            if (n.includes('rules')) cleanName = `📜-${cleanName}`;
+            else if (n.includes('announcement')) cleanName = `📢-${cleanName}`;
+            else if (n.includes('alert')) cleanName = `🚨-${cleanName}`;
+            else if (n.includes('signal')) cleanName = `📈-${cleanName}`;
+            else if (n.includes('log')) cleanName = `📁-${cleanName}`;
+            else cleanName = `💬-${cleanName}`;
+          }
+        }
+        const item = { id: ch.id, name: cleanName, type: ch.type, isNew: false };
         if (ch.type === 2) {
           voiceIds.push(item);
         } else {
@@ -529,12 +543,18 @@ router.post('/ai/suggest-sorting', async (req: Request, res: Response) => {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
+    const emojiPrompt = autoEmoji 
+      ? `If autoEmoji is enabled, please suggest appropriate topic-related emojis to prepend to the names of existing channels as well (e.g. 'general' -> '💬-general'). If a channel already has an emoji, you can optimize it or keep it.`
+      : `Do NOT change existing channel names, keep them exactly as they are.`;
+
     const systemPrompt = `You are an expert Discord community layout designer. 
     1. Organize this list of existing text and voice channels into clean, professional categories (e.g. "📢 INFO & LINKS", "💬 GENERAL CHAT", "🔊 VOICE CHATS", "📈 TRADING FLOORS"). 
     2. Additionally, suggest 3-5 high-value NEW channels that are highly beneficial for a premium trading & community server (e.g. "#📈-options-signals", "#🔊-trading-floor", "#💡-gems-chat") that are currently missing from the list.
     
+    ${emojiPrompt}
+    
     Format for channels inside the categories array:
-    - For existing channels, use their exact ID (e.g. "1203912903") and set "isNew": false. Do NOT change their names.
+    - For existing channels, use their exact ID (e.g. "1203912903") and set "isNew": false. If autoEmoji is true, set the "name" field to the suggested emoji-prefixed name; otherwise set it to their exact current name.
     - For new suggested channels, assign a unique ID starting with 'new:' followed by their name (e.g. 'new:options-signals'), set "isNew": true, and set "name" to a clean emoji-prefixed hyphenated string (e.g. "📈-options-signals").
     - Make sure "type" is correct (0 for text/news channels, 2 for voice channels).
     
@@ -656,7 +676,16 @@ router.post('/ai/apply-sorting', async (req: Request, res: Response) => {
             const channel = await guild.channels.fetch(channelObj.id);
             if (channel && (channel.type === 0 || channel.type === 2 || channel.type === 5)) {
               await (channel as any).setParent(categoryChannel.id, { lockPermissions: false });
-              addLog(`Moved #${(channel as any).name} under category "${group.category}"`, 'info');
+              
+              // If name has changed (e.g. AI appended an emoji), rename it!
+              const cleanTargetName = channelObj.name.toLowerCase().replace(/\s+/g, '-');
+              if (channel.name !== cleanTargetName) {
+                const oldName = channel.name;
+                await (channel as any).setName(cleanTargetName);
+                addLog(`Moved & Renamed #${oldName} to #${cleanTargetName} under category "${group.category}"`, 'info');
+              } else {
+                addLog(`Moved #${(channel as any).name} under category "${group.category}"`, 'info');
+              }
             }
           } catch (chErr: any) {
             addLog(`Skipped shifting channel ${channelObj.id} (might have been deleted as duplicate)`, 'info');

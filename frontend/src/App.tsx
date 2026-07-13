@@ -152,7 +152,7 @@ const App: React.FC = () => {
   });
 
   // Navigation State
-  const [activeTab, setActiveTab] = useState<'overview' | 'moderation' | 'welcome' | 'levels' | 'automod' | 'triggers' | 'aiHub' | 'broadcaster' | 'verification'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'moderation' | 'welcome' | 'levels' | 'automod' | 'triggers' | 'aiHub' | 'broadcaster'>('overview');
 
   // Server Fetch States
   const [botStatus, setBotStatus] = useState<BotStatus | null>(null);
@@ -213,6 +213,7 @@ const App: React.FC = () => {
   const [cleanLeftovers, setCleanLeftovers] = useState<boolean>(true);
   const [removeDuplicates, setRemoveDuplicates] = useState<boolean>(true);
   const [createMissing, setCreateMissing] = useState<boolean>(false);
+  const [aiAutoEmoji, setAiAutoEmoji] = useState<boolean>(true);
 
   // Local Moderator's personal Gemini API key (saved locally in browser localStorage)
   const [geminiApiKey, setGeminiApiKey] = useState<string>(() => {
@@ -672,7 +673,7 @@ const App: React.FC = () => {
       const res = await fetchAuth(`${API_BASE}/ai/suggest-sorting`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ geminiApiKey })
+        body: JSON.stringify({ geminiApiKey, autoEmoji: aiAutoEmoji })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to analyze sorting');
@@ -959,9 +960,6 @@ const App: React.FC = () => {
             </button>
             <button className={`sidebar-btn ${activeTab === 'broadcaster' ? 'active' : ''}`} onClick={() => setActiveTab('broadcaster')}>
               📢 <span>Server Broadcaster</span>
-            </button>
-            <button className={`sidebar-btn ${activeTab === 'verification' ? 'active' : ''}`} onClick={() => setActiveTab('verification')}>
-              🛡️ <span>Verification</span>
             </button>
           </nav>
         </div>
@@ -1280,59 +1278,122 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              <div className="glass-panel" style={{ height: 'fit-content' }}>
-                <h2 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--panel-border)', paddingBottom: '8px' }}>🎭 Reaction Roles Registry</h2>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>Assign roles automatically when members react to messages.</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div className="glass-panel" style={{ height: 'fit-content' }}>
+                  <h2 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--panel-border)', paddingBottom: '8px' }}>🎭 Reaction Roles Registry</h2>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>Assign roles automatically when members react to messages.</p>
 
-                <form onSubmit={addReactionRole} style={{ background: 'rgba(0,0,0,0.02)', padding: '15px', borderRadius: '8px', border: '1px solid var(--panel-border)', marginBottom: '1.5rem' }}>
-                  <h4 style={{ marginBottom: '10px', fontSize: '0.9rem' }}>Add New Reaction Role</h4>
-                  <div className="form-group" style={{ marginBottom: '10px' }}>
-                    <input type="text" className="form-input" required placeholder="Message ID" value={newReactMsgId} onChange={(e) => setNewReactMsgId(e.target.value)} />
+                  <form onSubmit={addReactionRole} style={{ background: 'rgba(0,0,0,0.02)', padding: '15px', borderRadius: '8px', border: '1px solid var(--panel-border)', marginBottom: '1.5rem' }}>
+                    <h4 style={{ marginBottom: '10px', fontSize: '0.9rem' }}>Add New Reaction Role</h4>
+                    <div className="form-group" style={{ marginBottom: '10px' }}>
+                      <input type="text" className="form-input" required placeholder="Message ID" value={newReactMsgId} onChange={(e) => setNewReactMsgId(e.target.value)} />
+                    </div>
+                    <div className="grid-2" style={{ gap: '10px', marginBottom: '10px' }}>
+                      <input type="text" className="form-input" required placeholder="Emoji (e.g. 👍)" value={newReactEmoji} onChange={(e) => setNewReactEmoji(e.target.value)} />
+                      <select className="form-select" required value={newReactRoleId} onChange={(e) => setNewReactRoleId(e.target.value)}>
+                        <option value="">-- Choose Role --</option>
+                        {roles.map(role => (
+                          <option key={role.id} value={role.id}>{role.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <button type="submit" className="btn" style={{ width: '100%', justifyContent: 'center' }}>+ Add Reaction Role</button>
+                  </form>
+
+                  <div className="table-container">
+                    <table className="custom-table" style={{ fontSize: '0.85rem' }}>
+                      <thead>
+                        <tr>
+                          <th>Message ID</th>
+                          <th>Emoji</th>
+                          <th>Grant Role</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reactionRoles.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No reaction roles configured.</td>
+                          </tr>
+                        ) : (
+                          reactionRoles.map((rr, idx) => {
+                            const roleName = roles.find(r => r.id === rr.roleId)?.name || rr.roleId;
+                            return (
+                              <tr key={idx}>
+                                <td style={{ fontFamily: 'var(--font-mono)' }}>{rr.messageId.substring(0, 10)}...</td>
+                                <td style={{ fontSize: '1.1rem' }}>{rr.emoji}</td>
+                                <td><span className="pill cyan">{roleName}</span></td>
+                                <td>
+                                  <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => deleteReactionRole(idx)}>🗑️</button>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
                   </div>
-                  <div className="grid-2" style={{ gap: '10px', marginBottom: '10px' }}>
-                    <input type="text" className="form-input" required placeholder="Emoji (e.g. 👍)" value={newReactEmoji} onChange={(e) => setNewReactEmoji(e.target.value)} />
-                    <select className="form-select" required value={newReactRoleId} onChange={(e) => setNewReactRoleId(e.target.value)}>
-                      <option value="">-- Choose Role --</option>
+                </div>
+
+                <div className="glass-panel">
+                  <div style={{ marginBottom: '1rem', borderBottom: '1px solid var(--panel-border)', paddingBottom: '8px' }}>
+                    <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>🛡️ Verification System</h2>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                      Setup a verification button in a channel. Clicking it grants access.
+                    </p>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', padding: '10px 12px', background: 'rgba(0,0,0,0.02)', borderRadius: '6px', border: '1px solid var(--panel-border)' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Enable Verification</span>
+                    <label className="switch" style={{ width: '40px', height: '22px' }}>
+                      <input type="checkbox" checked={verifyEnabled} onChange={(e) => setVerifyEnabled(e.target.checked)} />
+                      <span className="slider"></span>
+                    </label>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '10px' }}>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Verification Channel</label>
+                    <select className="form-select" style={{ padding: '6px 10px', fontSize: '0.85rem' }} value={verifyChannelId} onChange={(e) => setVerifyChannelId(e.target.value)} disabled={!verifyEnabled}>
+                      <option value="">-- Select Channel --</option>
+                      {channels.filter(ch => ch.type !== 2).map(ch => (
+                        <option key={ch.id} value={ch.id}>#{ch.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '10px' }}>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Role to Assign on Verify</label>
+                    <select className="form-select" style={{ padding: '6px 10px', fontSize: '0.85rem' }} value={verifyRoleId} onChange={(e) => setVerifyRoleId(e.target.value)} disabled={!verifyEnabled}>
+                      <option value="">-- Select Role --</option>
                       {roles.map(role => (
                         <option key={role.id} value={role.id}>{role.name}</option>
                       ))}
                     </select>
                   </div>
-                  <button type="submit" className="btn" style={{ width: '100%', justifyContent: 'center' }}>+ Add Reaction Role</button>
-                </form>
 
-                <div className="table-container">
-                  <table className="custom-table" style={{ fontSize: '0.85rem' }}>
-                    <thead>
-                      <tr>
-                        <th>Message ID</th>
-                        <th>Emoji</th>
-                        <th>Grant Role</th>
-                        <th>Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {reactionRoles.length === 0 ? (
-                        <tr>
-                          <td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No reaction roles configured.</td>
-                        </tr>
-                      ) : (
-                        reactionRoles.map((rr, idx) => {
-                          const roleName = roles.find(r => r.id === rr.roleId)?.name || rr.roleId;
-                          return (
-                            <tr key={idx}>
-                              <td style={{ fontFamily: 'var(--font-mono)' }}>{rr.messageId.substring(0, 10)}...</td>
-                              <td style={{ fontSize: '1.1rem' }}>{rr.emoji}</td>
-                              <td><span className="pill cyan">{roleName}</span></td>
-                              <td>
-                                <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => deleteReactionRole(idx)}>🗑️</button>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
+                  <div className="form-group" style={{ marginBottom: '10px' }}>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Embed Title</label>
+                    <input type="text" className="form-input" style={{ padding: '6px 10px', fontSize: '0.85rem' }} value={verifyEmbedTitle} onChange={(e) => setVerifyEmbedTitle(e.target.value)} disabled={!verifyEnabled} />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '10px' }}>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Embed Description</label>
+                    <textarea className="form-textarea" style={{ padding: '6px 10px', fontSize: '0.85rem', minHeight: '60px' }} value={verifyEmbedDescription} onChange={(e) => setVerifyEmbedDescription(e.target.value)} disabled={!verifyEnabled} />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '15px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', fontWeight: 600 }}>
+                      Embed Color:
+                      <input type="color" style={{ border: 'none', background: 'none', cursor: 'pointer', width: '30px', height: '30px' }} value={verifyEmbedColor} onChange={(e) => setVerifyEmbedColor(e.target.value)} disabled={!verifyEnabled} />
+                    </label>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <button className="btn" style={{ justifyContent: 'center', padding: '10px' }} onClick={saveVerificationSettings}>💾 Save Settings</button>
+                    <button className="btn" style={{ justifyContent: 'center', padding: '10px', background: 'var(--accent-green)', color: '#fff' }} onClick={sendVerificationEmbed} disabled={verifySending || !verifyEnabled || !verifyChannelId || !verifyRoleId}>
+                      {verifySending ? '📤 Sending...' : '📤 Send Verify Button to Channel'}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1631,9 +1692,21 @@ const App: React.FC = () => {
                   <div style={{ textAlign: 'center', padding: '20px' }}>
                     <div style={{ fontSize: '4.5rem', marginBottom: '20px' }}>📁✨</div>
                     <h3 style={{ marginBottom: '10px' }}>Organize Server Instantly</h3>
-                    <p style={{ color: 'var(--text-secondary)', marginBottom: '30px', maxWidth: '500px' }}>
+                    <p style={{ color: 'var(--text-secondary)', marginBottom: '20px', maxWidth: '500px', margin: '0 auto 20px auto' }}>
                       Analyze existing channels, re-arrange them neatly, and choose whether to generate missing recommended channels.
                     </p>
+                    
+                    {/* Auto Emoji toggle */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '30px' }}>
+                      <label className="switch" style={{ width: '40px', height: '22px' }}>
+                        <input type="checkbox" checked={aiAutoEmoji} onChange={(e) => setAiAutoEmoji(e.target.checked)} />
+                        <span className="slider"></span>
+                      </label>
+                      <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                        ✨ AI Suggest relevant Emojis for Channel Names
+                      </span>
+                    </div>
+
                     <button className="btn" style={{ padding: '14px 28px', fontSize: '1.05rem' }} onClick={handleAISuggestSorting}>
                       🔍 Analyze & Suggest Layout
                     </button>
@@ -1993,71 +2066,6 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </form>
-            </div>
-          )}
-
-          {/* TAB CONTENT: Verification */}
-          {activeTab === 'verification' && (
-            <div className="glass-panel">
-              <div style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--panel-border)', paddingBottom: '10px' }}>
-                <h2>🛡️ Verification System</h2>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                  Setup a verification button in a channel. When users click it, they get a role and access to the server.
-                </p>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', padding: '15px', background: 'rgba(0,0,0,0.02)', borderRadius: '8px', border: '1px solid var(--panel-border)' }}>
-                <h4>Enable Verification System</h4>
-                <label className="switch">
-                  <input type="checkbox" checked={verifyEnabled} onChange={(e) => setVerifyEnabled(e.target.checked)} />
-                  <span className="slider round"></span>
-                </label>
-              </div>
-
-              <div className="grid-2" style={{ gap: '15px', marginBottom: '20px' }}>
-                <div className="form-group">
-                  <label>Verification Channel</label>
-                  <select className="form-select" value={verifyChannelId} onChange={(e) => setVerifyChannelId(e.target.value)} disabled={!verifyEnabled}>
-                    <option value="">-- Select Channel --</option>
-                    {channels.filter(ch => ch.type !== 2).map(ch => (
-                      <option key={ch.id} value={ch.id}>#{ch.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Role to Assign on Verify</label>
-                  <select className="form-select" value={verifyRoleId} onChange={(e) => setVerifyRoleId(e.target.value)} disabled={!verifyEnabled}>
-                    <option value="">-- Select Role --</option>
-                    {roles.map(role => (
-                      <option key={role.id} value={role.id}>{role.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="form-group" style={{ marginBottom: '15px' }}>
-                <label>Embed Title</label>
-                <input type="text" className="form-input" value={verifyEmbedTitle} onChange={(e) => setVerifyEmbedTitle(e.target.value)} disabled={!verifyEnabled} />
-              </div>
-
-              <div className="form-group" style={{ marginBottom: '15px' }}>
-                <label>Embed Description</label>
-                <textarea className="form-textarea" value={verifyEmbedDescription} onChange={(e) => setVerifyEmbedDescription(e.target.value)} disabled={!verifyEnabled} />
-              </div>
-
-              <div className="form-group" style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  Embed Color:
-                  <input type="color" style={{ border: 'none', background: 'none', cursor: 'pointer', width: '35px', height: '35px' }} value={verifyEmbedColor} onChange={(e) => setVerifyEmbedColor(e.target.value)} disabled={!verifyEnabled} />
-                </label>
-              </div>
-
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <button className="btn" style={{ flex: 1, justifyContent: 'center' }} onClick={saveVerificationSettings}>💾 Save Settings</button>
-                <button className="btn" style={{ flex: 1, justifyContent: 'center', background: 'var(--accent-green)', color: '#fff' }} onClick={sendVerificationEmbed} disabled={verifySending || !verifyEnabled || !verifyChannelId || !verifyRoleId}>
-                  {verifySending ? '📤 Sending...' : '📤 Send Verify Button to Channel'}
-                </button>
-              </div>
             </div>
           )}
         </div>

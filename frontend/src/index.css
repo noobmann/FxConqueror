@@ -783,7 +783,7 @@ input:checked + .slider:before {
 
 /* Mobile hamburger and responsive layout */
 @media (max-width: 768px) {
-  .app-layout {
+  .dashboard-layout {
     flex-direction: column;
   }
   
