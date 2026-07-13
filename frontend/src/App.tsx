@@ -211,8 +211,8 @@ const App: React.FC = () => {
   const [aiSortingSuggestions, setAiSortingSuggestions] = useState<AISortingSuggestion | null>(null);
   const [aiNote, setAiNote] = useState<string | null>(null);
   const [aiBuilding, setAiBuilding] = useState<boolean>(false);
-  const [cleanLeftovers, setCleanLeftovers] = useState<boolean>(true);
-  const [removeDuplicates, setRemoveDuplicates] = useState<boolean>(true);
+  const [cleanLeftovers, setCleanLeftovers] = useState<boolean>(false);
+  const [removeDuplicates, setRemoveDuplicates] = useState<boolean>(false);
   const [createMissing, setCreateMissing] = useState<boolean>(false);
   const [aiAutoEmoji, setAiAutoEmoji] = useState<boolean>(true);
 
@@ -1016,6 +1016,10 @@ const App: React.FC = () => {
               <button className="mobile-sheet-close" onClick={() => setMobileMoreOpen(false)} aria-label="Close menu">×</button>
             </div>
             <div className="mobile-more-grid">
+              <button onClick={() => { setActiveTab('overview'); setMobileMoreOpen(false); }}>Home <span>Overview</span></button>
+              <button onClick={() => { setActiveTab('moderation'); setMobileMoreOpen(false); }}>Rules <span>Channels & Rules</span></button>
+              <button onClick={() => { setActiveTab('welcome'); setMobileMoreOpen(false); }}>Welcome <span>Welcome & Goodbye</span></button>
+              <button onClick={() => { setActiveTab('levels'); setMobileMoreOpen(false); }}>Levels <span>Levels & Members</span></button>
               <button onClick={() => { setActiveTab('automod'); setMobileMoreOpen(false); }}>Auto-mod <span>Auto-Moderation</span></button>
               <button onClick={() => { setActiveTab('triggers'); setMobileMoreOpen(false); }}>Triggers <span>Custom Triggers</span></button>
               <button onClick={() => { setActiveTab('aiHub'); setMobileMoreOpen(false); }}>AI <span>AI Organizer</span></button>

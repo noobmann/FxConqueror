@@ -6,6 +6,65 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const router = Router();
 
+type AIChannelPlan = {
+  id: string;
+  name: string;
+  type: number;
+  isNew: boolean;
+};
+
+type AICategoryPlan = {
+  category: string;
+  channels: AIChannelPlan[];
+};
+
+function validateOrganizationPlan(
+  input: unknown,
+  existingChannels: Map<string, { id: string; type: number }>
+): { categories: AICategoryPlan[] } | null {
+  if (!input || typeof input !== 'object' || !Array.isArray((input as { categories?: unknown }).categories)) {
+    return null;
+  }
+
+  const categories: AICategoryPlan[] = [];
+  const usedExistingIds = new Set<string>();
+
+  for (const rawGroup of (input as { categories: unknown[] }).categories) {
+    if (!rawGroup || typeof rawGroup !== 'object') return null;
+    const { category, channels } = rawGroup as { category?: unknown; channels?: unknown };
+    if (typeof category !== 'string' || !Array.isArray(channels)) return null;
+
+    const categoryName = category.trim();
+    if (!categoryName || categoryName.length > 100) return null;
+
+    const validChannels: AIChannelPlan[] = [];
+    for (const rawChannel of channels) {
+      if (!rawChannel || typeof rawChannel !== 'object') return null;
+      const { id, name, type, isNew } = rawChannel as {
+        id?: unknown; name?: unknown; type?: unknown; isNew?: unknown;
+      };
+      if (typeof id !== 'string' || typeof name !== 'string' || typeof type !== 'number' || typeof isNew !== 'boolean') return null;
+
+      const channelName = name.trim();
+      if (!channelName || channelName.length > 100) return null;
+
+      if (isNew) {
+        if (!id.startsWith('new:') || (type !== 0 && type !== 2)) return null;
+      } else {
+        const existing = existingChannels.get(id);
+        if (!existing || existing.type !== type || usedExistingIds.has(id)) return null;
+        usedExistingIds.add(id);
+      }
+
+      validChannels.push({ id, name: channelName, type, isNew });
+    }
+
+    if (validChannels.length > 0) categories.push({ category: categoryName, channels: validChannels });
+  }
+
+  return categories.length > 0 && categories.length <= 25 ? { categories } : null;
+}
+
 // Multi-server session store: token -> guildId
 const sessions = new Map<string, string>();
 
@@ -596,9 +655,6 @@ router.post('/ai/suggest-sorting', async (req: Request, res: Response) => {
 // Apply sorting / move channels on Discord Guild, clean leftovers, duplicates, and create suggested new channels
 router.post('/ai/apply-sorting', async (req: Request, res: Response) => {
   const { suggestion, cleanLeftovers, removeDuplicates, createMissing } = req.body;
-  if (!suggestion || !Array.isArray(suggestion.categories)) {
-    return res.status(400).json({ error: 'Invalid sorting layout structure' });
-  }
 
   const guild = getGuild((req as any).guildId);
   if (!guild) {
@@ -606,9 +662,20 @@ router.post('/ai/apply-sorting', async (req: Request, res: Response) => {
   }
 
   try {
+    const fetchedChannels = await guild.channels.fetch();
+    const existingOrganizableChannels = new Map(
+      fetchedChannels
+        .filter(c => c !== null && (c.type === 0 || c.type === 2 || c.type === 5))
+        .map(c => [c!.id, { id: c!.id, type: c!.type }])
+    );
+    const safeSuggestion = validateOrganizationPlan(suggestion, existingOrganizableChannels);
+    if (!safeSuggestion) {
+      return res.status(400).json({ error: 'Invalid or unsafe AI organization plan. Generate a new suggestion and review it before applying.' });
+    }
+
     if (removeDuplicates) {
-      addLog('Scanning for duplicate channel names to remove...', 'info');
-      const allChannels = await guild.channels.fetch();
+      addLog('Scanning for duplicate channel names within the same category...', 'info');
+      const allChannels = fetchedChannels;
       
       const textAndVoice = allChannels.filter(c => c !== null && (c.type === 0 || c.type === 2 || c.type === 5));
       const seenNames = new Map<string, string>(); 
@@ -616,7 +683,8 @@ router.post('/ai/apply-sorting', async (req: Request, res: Response) => {
       for (const ch of textAndVoice.values()) {
         if (!ch) continue;
         const cleanName = ch.name.toLowerCase().trim();
-        if (seenNames.has(cleanName)) {
+        const duplicateKey = `${ch.parentId || 'no-category'}:${cleanName}`;
+        if (seenNames.has(duplicateKey)) {
           try {
             await ch.delete();
             addLog(`Deleted duplicate channel: #${ch.name}`, 'info');
@@ -624,15 +692,15 @@ router.post('/ai/apply-sorting', async (req: Request, res: Response) => {
             addLog(`Could not delete duplicate channel #${ch.name}: ${delChErr.message}`, 'warn');
           }
         } else {
-          seenNames.set(cleanName, ch.id);
+          seenNames.set(duplicateKey, ch.id);
         }
       }
     }
 
     addLog('Applying AI channel sorting layout...', 'info');
-    const activeCategoryIds = new Set<string>();
+    const createdCategoryIds = new Set<string>();
 
-    for (const group of suggestion.categories) {
+    for (const group of safeSuggestion.categories) {
       if (group.channels.length === 0) continue;
 
       let categoryChannel = guild.channels.cache.find(c => 
@@ -644,10 +712,9 @@ router.post('/ai/apply-sorting', async (req: Request, res: Response) => {
           name: group.category,
           type: 4
         });
+        createdCategoryIds.add(categoryChannel.id);
         addLog(`Created category: "${group.category}"`, 'info');
       }
-
-      activeCategoryIds.add(categoryChannel.id);
 
       for (const channelObj of group.channels) {
         if (channelObj.isNew) {
@@ -668,7 +735,7 @@ router.post('/ai/apply-sorting', async (req: Request, res: Response) => {
                   type: channelObj.type,
                   parent: categoryChannel.id
                 });
-                addLog(`Created new AI recommended channel: #${newChan.name} under category "${group.category}"`, 'info');
+                addLog(`Created new AI recommended channel: #${(newChan as any).name} under category "${group.category}"`, 'info');
               } catch (createErr: any) {
                 addLog(`Failed to create recommended channel ${channelObj.name}: ${createErr.message}`, 'warn');
               }
@@ -707,7 +774,7 @@ router.post('/ai/apply-sorting', async (req: Request, res: Response) => {
       const categories = allChannels.filter(c => c !== null && c.type === 4);
 
       for (const cat of categories.values()) {
-        if (!cat) continue;
+        if (!cat || !createdCategoryIds.has(cat.id)) continue;
         const children = allChannels.filter(c => c !== null && c.parentId === cat.id);
         
         if (children.size === 0) {

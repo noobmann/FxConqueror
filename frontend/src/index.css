@@ -847,7 +847,7 @@ input:checked + .slider:before {
     text-align: center;
   }
 
-  .sidebar-btn:nth-child(n + 5):not(.mobile-more-btn) {
+  .sidebar-btn:nth-child(n + 4):not(.mobile-more-btn) {
     display: none;
   }
 
