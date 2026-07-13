@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { client, activityLogs, updateChannelSlowmode, addLog } from '../bot/bot';
 import { getDb, saveDb, WarningRecord } from '../utils/db';
-import { TextChannel, PermissionsBitField } from 'discord.js';
+import { TextChannel, PermissionsBitField, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const router = Router();
@@ -748,7 +748,7 @@ router.post('/ai/rename-channel', async (req: Request, res: Response) => {
 // UNIVERSAL BROADCASTER / CHANNEL POSTER
 // ----------------------------------------------------
 router.post('/broadcaster/post', async (req: Request, res: Response) => {
-  const { channelId, postType, textContent, embedTitle, embedColor, pollQuestion, pollOptions, pollDuration } = req.body;
+  const { channelId, postType, textContent, embedTitle, embedColor, pollQuestion, pollOptions, pollDuration, imageUrl } = req.body;
   if (!channelId || !postType) {
     return res.status(400).json({ error: 'Missing channelId or postType' });
   }
@@ -765,11 +765,16 @@ router.post('/broadcaster/post', async (req: Request, res: Response) => {
     }
 
     if (postType === 'text') {
-      if (!textContent) {
-        return res.status(400).json({ error: 'Text content is required' });
+      if (!textContent && !imageUrl) {
+        return res.status(400).json({ error: 'Text content or image URL is required' });
       }
-      await (channel as any).send(textContent);
-      addLog(`Broadcaster: Sent text message to #${(channel as any).name}`, 'info');
+      const msgPayload: any = {};
+      if (textContent) msgPayload.content = textContent;
+      if (imageUrl) {
+        msgPayload.embeds = [{ image: { url: imageUrl }, color: 0x2f3136 }];
+      }
+      await (channel as any).send(msgPayload);
+      addLog(`Broadcaster: Sent message to #${(channel as any).name}`, 'info');
       return res.json({ message: 'Message posted successfully!' });
     }
 
@@ -785,6 +790,9 @@ router.post('/broadcaster/post', async (req: Request, res: Response) => {
       };
       if (embedTitle) {
         embed.title = embedTitle;
+      }
+      if (imageUrl) {
+        embed.image = { url: imageUrl };
       }
 
       await (channel as any).send({ embeds: [embed] });
@@ -820,6 +828,56 @@ router.post('/broadcaster/post', async (req: Request, res: Response) => {
   } catch (err: any) {
     addLog(`Broadcaster failed: ${err.message}`, 'error');
     res.status(500).json({ error: `Failed to broadcast message: ${err.message}` });
+  }
+});
+
+// ----------------------------------------------------
+// VERIFICATION SYSTEM ROUTES
+// ----------------------------------------------------
+router.post('/settings/verification', (req: Request, res: Response) => {
+  const { enabled, channelId, roleId, embedTitle, embedDescription, embedColor } = req.body;
+  const db = getDb();
+  db.verificationSettings = { enabled, channelId, roleId, embedTitle, embedDescription, embedColor };
+  saveDb(db);
+  addLog(`Verification settings updated`, 'info');
+  res.json({ message: 'Verification settings saved', settings: db });
+});
+
+router.post('/verification/send', async (req: Request, res: Response) => {
+  const db = getDb();
+  const vs = db.verificationSettings;
+  if (!vs || !vs.enabled || !vs.channelId || !vs.roleId) {
+    return res.status(400).json({ error: 'Verification is not fully configured' });
+  }
+
+  try {
+    const guild = getGuild((req as any).guildId);
+    if (!guild) return res.status(404).json({ error: 'Guild not connected' });
+
+    const channel = await guild.channels.fetch(vs.channelId);
+    if (!channel || !channel.isTextBased()) {
+      return res.status(404).json({ error: 'Verification channel not found' });
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle(vs.embedTitle || '✅ Server Verification')
+      .setDescription(vs.embedDescription || 'Click the button below to verify!')
+      .setColor(parseInt(vs.embedColor?.replace('#', '') || '00d26a', 16))
+      .setTimestamp();
+
+    const button = new ButtonBuilder()
+      .setCustomId('verify_button')
+      .setLabel('✅ Verify Me')
+      .setStyle(ButtonStyle.Success);
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
+
+    await (channel as any).send({ embeds: [embed], components: [row] });
+    addLog(`Verification embed sent to #${(channel as any).name}`, 'info');
+    res.json({ message: 'Verification embed posted successfully!' });
+  } catch (err: any) {
+    addLog(`Failed to send verification embed: ${err.message}`, 'error');
+    res.status(500).json({ error: `Failed: ${err.message}` });
   }
 });
 

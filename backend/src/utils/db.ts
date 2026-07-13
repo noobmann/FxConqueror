@@ -53,6 +53,15 @@ export interface WarningRecord {
   timestamp: string;
 }
 
+export interface VerificationSettings {
+  enabled: boolean;
+  channelId: string;
+  roleId: string;
+  embedTitle: string;
+  embedDescription: string;
+  embedColor: string;
+}
+
 export interface Credentials {
   discordToken?: string;
   geminiApiKey?: string;
@@ -71,6 +80,7 @@ export interface DatabaseSchema {
   autoMod: AutoModSettings;
   warnings: Record<string, WarningRecord[]>;
   credentials?: Credentials;
+  verificationSettings?: VerificationSettings;
 }
 
 const DB_PATH = path.join(__dirname, '../../database.json');
@@ -109,6 +119,14 @@ const defaultDb: DatabaseSchema = {
   credentials: {
     discordToken: '',
     geminiApiKey: ''
+  },
+  verificationSettings: {
+    enabled: false,
+    channelId: '',
+    roleId: '',
+    embedTitle: '✅ Server Verification',
+    embedDescription: 'Click the button below to verify yourself and gain access to the server!',
+    embedColor: '#00d26a'
   }
 };
 

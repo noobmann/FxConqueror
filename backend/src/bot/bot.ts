@@ -5,7 +5,8 @@ import {
   TextChannel, 
   EmbedBuilder, 
   PermissionsBitField,
-  GuildMember
+  GuildMember,
+  ButtonInteraction
 } from 'discord.js';
 import { getDb, saveDb, XpRecord, WarningRecord } from '../utils/db';
 
@@ -49,6 +50,37 @@ export const client = new Client({
 // Event: Bot Ready
 client.once('ready', () => {
   addLog(`Bot is logged in as ${client.user?.tag}!`, 'info');
+});
+
+// Event: Button Interaction (Verification System)
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isButton()) return;
+  
+  if (interaction.customId === 'verify_button') {
+    const db = getDb();
+    const verifyRoleId = db.verificationSettings?.roleId;
+    
+    if (!verifyRoleId) {
+      await interaction.reply({ content: '❌ Verification is not configured yet.', ephemeral: true });
+      return;
+    }
+    
+    try {
+      const member = interaction.member as GuildMember;
+      
+      if (member.roles.cache.has(verifyRoleId)) {
+        await interaction.reply({ content: '✅ You are already verified!', ephemeral: true });
+        return;
+      }
+      
+      await member.roles.add(verifyRoleId);
+      addLog(`Verified user ${member.user.tag} via button click`, 'info');
+      await interaction.reply({ content: '✅ You have been verified! Welcome to the server! 🎉', ephemeral: true });
+    } catch (err: any) {
+      addLog(`Verification failed for ${interaction.user.tag}: ${err.message}`, 'error');
+      await interaction.reply({ content: '❌ Verification failed. Please contact an admin.', ephemeral: true });
+    }
+  }
 });
 
 // Event: Member Joins (Welcome & Auto-role)

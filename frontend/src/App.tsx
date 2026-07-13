@@ -142,7 +142,7 @@ const App: React.FC = () => {
   });
 
   // Navigation State
-  const [activeTab, setActiveTab] = useState<'overview' | 'moderation' | 'welcome' | 'levels' | 'automod' | 'triggers' | 'aiHub' | 'broadcaster'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'moderation' | 'welcome' | 'levels' | 'automod' | 'triggers' | 'aiHub' | 'broadcaster' | 'verification'>('overview');
 
   // Server Fetch States
   const [botStatus, setBotStatus] = useState<BotStatus | null>(null);
@@ -225,6 +225,16 @@ const App: React.FC = () => {
   ]);
   const [broadcasterPollDuration, setBroadcasterPollDuration] = useState<number>(24);
   const [broadcasterLoading, setBroadcasterLoading] = useState<boolean>(false);
+  const [broadcasterImageUrl, setBroadcasterImageUrl] = useState<string>('');
+
+  // Verification System States
+  const [verifyEnabled, setVerifyEnabled] = useState<boolean>(false);
+  const [verifyChannelId, setVerifyChannelId] = useState<string>('');
+  const [verifyRoleId, setVerifyRoleId] = useState<string>('');
+  const [verifyEmbedTitle, setVerifyEmbedTitle] = useState<string>('✅ Server Verification');
+  const [verifyEmbedDescription, setVerifyEmbedDescription] = useState<string>('Click the button below to verify yourself and gain access to the server!');
+  const [verifyEmbedColor, setVerifyEmbedColor] = useState<string>('#00d26a');
+  const [verifySending, setVerifySending] = useState<boolean>(false);
 
   // Alert Banner Status
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error' | null; msg: string | null }>({
@@ -328,6 +338,15 @@ const App: React.FC = () => {
       setBadWordsList(statusData.settings.autoMod?.badWordsList || []);
       setBlockLinks(statusData.settings.autoMod?.blockLinks || false);
       setBlockCaps(statusData.settings.autoMod?.blockCaps || false);
+
+      if (statusData.settings.verificationSettings) {
+        setVerifyEnabled(statusData.settings.verificationSettings.enabled || false);
+        setVerifyChannelId(statusData.settings.verificationSettings.channelId || '');
+        setVerifyRoleId(statusData.settings.verificationSettings.roleId || '');
+        setVerifyEmbedTitle(statusData.settings.verificationSettings.embedTitle || '✅ Server Verification');
+        setVerifyEmbedDescription(statusData.settings.verificationSettings.embedDescription || 'Click the button below to verify yourself and gain access to the server!');
+        setVerifyEmbedColor(statusData.settings.verificationSettings.embedColor || '#00d26a');
+      }
 
       if (statusData.guildId) {
         const [channelsRes, rolesRes, membersRes, logsRes] = await Promise.all([
@@ -736,7 +755,8 @@ const App: React.FC = () => {
           embedColor: broadcasterEmbedColor,
           pollQuestion: broadcasterPollQuestion,
           pollOptions: filteredOptions,
-          pollDuration: broadcasterPollDuration
+          pollDuration: broadcasterPollDuration,
+          imageUrl: broadcasterImageUrl
         })
       });
       const data = await res.json();
@@ -753,10 +773,44 @@ const App: React.FC = () => {
         { text: '', emoji: '' },
         { text: '', emoji: '' }
       ]);
+      setBroadcasterImageUrl('');
     } catch (err: any) {
       alert(err.message);
     } finally {
       setBroadcasterLoading(false);
+    }
+  };
+
+  const saveVerificationSettings = async () => {
+    await handleSave(`${API_BASE}/settings/verification`, {
+      enabled: verifyEnabled,
+      channelId: verifyChannelId,
+      roleId: verifyRoleId,
+      embedTitle: verifyEmbedTitle,
+      embedDescription: verifyEmbedDescription,
+      embedColor: verifyEmbedColor
+    }, 'Verification settings saved!');
+  };
+
+  const sendVerificationEmbed = async () => {
+    if (!verifyChannelId || !verifyRoleId) {
+      alert('Please configure channel and role first.');
+      return;
+    }
+    setVerifySending(true);
+    try {
+      const res = await fetchAuth(`${API_BASE}/verification/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed');
+      setSaveStatus({ type: 'success', msg: data.message });
+      setTimeout(() => setSaveStatus({ type: null, msg: null }), 3000);
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setVerifySending(false);
     }
   };
 
@@ -912,6 +966,9 @@ const App: React.FC = () => {
             </button>
             <button className={`sidebar-btn ${activeTab === 'broadcaster' ? 'active' : ''}`} onClick={() => setActiveTab('broadcaster')}>
               📢 <span>Server Broadcaster</span>
+            </button>
+            <button className={`sidebar-btn ${activeTab === 'verification' ? 'active' : ''}`} onClick={() => setActiveTab('verification')}>
+              🛡️ <span>Verification</span>
             </button>
           </nav>
         </div>
@@ -1315,57 +1372,6 @@ const App: React.FC = () => {
 
                 <button className="btn" style={{ marginBottom: '20px' }} onClick={saveLevelingSettings}>Save Level Configurations</button>
 
-                <form onSubmit={addLevelReward} style={{ borderTop: '1px solid var(--panel-border)', paddingTop: '15px' }}>
-                  <h4 style={{ marginBottom: '10px', fontSize: '0.9rem' }}>🏆 Level Up Role Rewards</h4>
-                  <div className="grid-2" style={{ gap: '10px', marginBottom: '10px' }}>
-                    <div>
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Target Level</label>
-                      <input type="number" className="form-input" min="1" required value={rewardLevel} onChange={(e) => setRewardLevel(parseInt(e.target.value))} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Role Reward</label>
-                      <select className="form-select" required value={rewardRoleId} onChange={(e) => setRewardRoleId(e.target.value)}>
-                        <option value="">-- Choose Role --</option>
-                        {roles.map(role => (
-                          <option key={role.id} value={role.id}>{role.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                  <button type="submit" className="btn" style={{ width: '100%', justifyContent: 'center' }} disabled={!levelingEnabled}>+ Add Level Reward</button>
-                </form>
-
-                <div className="table-container">
-                  <table className="custom-table" style={{ fontSize: '0.8rem' }}>
-                    <thead>
-                      <tr>
-                        <th>Level</th>
-                        <th>Role Granted</th>
-                        <th>Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {roleRewards.length === 0 ? (
-                        <tr>
-                          <td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No role rewards mapped.</td>
-                        </tr>
-                      ) : (
-                        roleRewards.map((rr, idx) => {
-                          const roleName = roles.find(r => r.id === rr.roleId)?.name || rr.roleId;
-                          return (
-                            <tr key={idx}>
-                              <td style={{ fontWeight: 'bold' }}>Level {rr.level}</td>
-                              <td><span className="pill green">{roleName}</span></td>
-                              <td>
-                                <button className="btn btn-danger" style={{ padding: '3px 6px', fontSize: '0.75rem' }} onClick={() => deleteLevelReward(idx)}>🗑️</button>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
               </div>
 
               <div className="glass-panel">
@@ -1831,6 +1837,16 @@ const App: React.FC = () => {
                             onChange={(e) => setBroadcasterTextContent(e.target.value)} 
                           />
                         </div>
+                        <div className="form-group">
+                          <label>Image URL (Optional)</label>
+                          <input 
+                            type="url" 
+                            className="form-input" 
+                            placeholder="https://example.com/image.png" 
+                            value={broadcasterImageUrl} 
+                            onChange={(e) => setBroadcasterImageUrl(e.target.value)} 
+                          />
+                        </div>
                       </div>
                     )}
 
@@ -1869,6 +1885,16 @@ const App: React.FC = () => {
                               onChange={(e) => setBroadcasterEmbedColor(e.target.value)} 
                             />
                           </label>
+                        </div>
+                        <div className="form-group">
+                          <label>Embed Image URL (Optional)</label>
+                          <input 
+                            type="url" 
+                            className="form-input" 
+                            placeholder="https://example.com/image.png" 
+                            value={broadcasterImageUrl} 
+                            onChange={(e) => setBroadcasterImageUrl(e.target.value)} 
+                          />
                         </div>
                       </div>
                     )}
@@ -1974,6 +2000,71 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </form>
+            </div>
+          )}
+
+          {/* TAB CONTENT: Verification */}
+          {activeTab === 'verification' && (
+            <div className="glass-panel">
+              <div style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--panel-border)', paddingBottom: '10px' }}>
+                <h2>🛡️ Verification System</h2>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                  Setup a verification button in a channel. When users click it, they get a role and access to the server.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', padding: '15px', background: 'rgba(0,0,0,0.02)', borderRadius: '8px', border: '1px solid var(--panel-border)' }}>
+                <h4>Enable Verification System</h4>
+                <label className="switch">
+                  <input type="checkbox" checked={verifyEnabled} onChange={(e) => setVerifyEnabled(e.target.checked)} />
+                  <span className="slider round"></span>
+                </label>
+              </div>
+
+              <div className="grid-2" style={{ gap: '15px', marginBottom: '20px' }}>
+                <div className="form-group">
+                  <label>Verification Channel</label>
+                  <select className="form-select" value={verifyChannelId} onChange={(e) => setVerifyChannelId(e.target.value)} disabled={!verifyEnabled}>
+                    <option value="">-- Select Channel --</option>
+                    {channels.filter(ch => ch.type !== 2).map(ch => (
+                      <option key={ch.id} value={ch.id}>#{ch.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Role to Assign on Verify</label>
+                  <select className="form-select" value={verifyRoleId} onChange={(e) => setVerifyRoleId(e.target.value)} disabled={!verifyEnabled}>
+                    <option value="">-- Select Role --</option>
+                    {roles.map(role => (
+                      <option key={role.id} value={role.id}>{role.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '15px' }}>
+                <label>Embed Title</label>
+                <input type="text" className="form-input" value={verifyEmbedTitle} onChange={(e) => setVerifyEmbedTitle(e.target.value)} disabled={!verifyEnabled} />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '15px' }}>
+                <label>Embed Description</label>
+                <textarea className="form-textarea" value={verifyEmbedDescription} onChange={(e) => setVerifyEmbedDescription(e.target.value)} disabled={!verifyEnabled} />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  Embed Color:
+                  <input type="color" style={{ border: 'none', background: 'none', cursor: 'pointer', width: '35px', height: '35px' }} value={verifyEmbedColor} onChange={(e) => setVerifyEmbedColor(e.target.value)} disabled={!verifyEnabled} />
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button className="btn" style={{ flex: 1, justifyContent: 'center' }} onClick={saveVerificationSettings}>💾 Save Settings</button>
+                <button className="btn" style={{ flex: 1, justifyContent: 'center', background: 'var(--accent-green)', color: '#fff' }} onClick={sendVerificationEmbed} disabled={verifySending || !verifyEnabled || !verifyChannelId || !verifyRoleId}>
+                  {verifySending ? '📤 Sending...' : '📤 Send Verify Button to Channel'}
+                </button>
+              </div>
             </div>
           )}
         </div>
