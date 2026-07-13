@@ -156,7 +156,7 @@ const App: React.FC = () => {
   });
 
   // Navigation State
-  const [activeTab, setActiveTab] = useState<'overview' | 'moderation' | 'welcome' | 'levels' | 'automod' | 'triggers' | 'aiHub' | 'broadcaster' | 'roles' | 'schedule'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'moderation' | 'welcome' | 'levels' | 'automod' | 'triggers' | 'aiHub' | 'broadcaster' | 'roles' | 'schedule' | 'commands'>('overview');
   const [mobileMoreOpen, setMobileMoreOpen] = useState<boolean>(false);
 
   // Server Fetch States
@@ -1089,10 +1089,13 @@ const App: React.FC = () => {
               &hellip; <span>More</span>
             </button>
             <button className={`sidebar-btn ${activeTab === 'roles' ? 'active' : ''}`} onClick={() => setActiveTab('roles')}>
-              Roles <span>Role Editor</span>
+              🛡️ <span>Role Editor</span>
             </button>
             <button className={`sidebar-btn ${activeTab === 'schedule' ? 'active' : ''}`} onClick={() => setActiveTab('schedule')}>
-              Time <span>Daily Schedule</span>
+              ⏰ <span>Daily Schedule</span>
+            </button>
+            <button className={`sidebar-btn ${activeTab === 'commands' ? 'active' : ''}`} onClick={() => setActiveTab('commands')}>
+              ⌨️ <span>Commands</span>
             </button>
           </nav>
         </div>
@@ -1139,8 +1142,9 @@ const App: React.FC = () => {
               <button onClick={() => { setActiveTab('moderation'); setMobileMoreOpen(false); }}>Rules <span>Channels & Rules</span></button>
               <button onClick={() => { setActiveTab('welcome'); setMobileMoreOpen(false); }}>Welcome <span>Welcome & Goodbye</span></button>
               <button onClick={() => { setActiveTab('levels'); setMobileMoreOpen(false); }}>Levels <span>Levels & Members</span></button>
-              <button onClick={() => { setActiveTab('roles'); setMobileMoreOpen(false); }}>Roles <span>Role Editor</span></button>
-              <button onClick={() => { setActiveTab('schedule'); setMobileMoreOpen(false); }}>Time <span>Daily Schedule</span></button>
+              <button onClick={() => { setActiveTab('roles'); setMobileMoreOpen(false); }}>🛡️ <span>Role Editor</span></button>
+              <button onClick={() => { setActiveTab('schedule'); setMobileMoreOpen(false); }}>⏰ <span>Daily Schedule</span></button>
+              <button onClick={() => { setActiveTab('commands'); setMobileMoreOpen(false); }}>⌨️ <span>Commands</span></button>
               <button onClick={() => { setActiveTab('automod'); setMobileMoreOpen(false); }}>Auto-mod <span>Auto-Moderation</span></button>
               <button onClick={() => { setActiveTab('triggers'); setMobileMoreOpen(false); }}>Triggers <span>Custom Triggers</span></button>
               <button onClick={() => { setActiveTab('aiHub'); setMobileMoreOpen(false); }}>AI <span>AI Organizer</span></button>
@@ -1262,7 +1266,7 @@ const App: React.FC = () => {
 
                 <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--panel-border)', paddingBottom: '8px' }}>
-                    <h2>💻 Live Activity Monitor</h2>
+                    <h2>💻 Live Activity Monitor <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem', fontWeight: 700 }}>(IST)</span></h2>
                     <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '0.8rem' }} onClick={() => setLogs([])}>Clear Screen</button>
                   </div>
                   <div className="logs-box">
@@ -1660,6 +1664,16 @@ const App: React.FC = () => {
           )}
 
           {/* TAB CONTENT: Auto-Moderation */}
+          {activeTab === 'commands' && (
+            <div className="glass-panel">
+              <h2 style={{ marginBottom: '6px' }}>Discord Commands</h2>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: '18px' }}>Use these directly in Discord—no dashboard required. Permissions are enforced by the bot.</p>
+              <div className="table-container"><table className="custom-table"><thead><tr><th>Command</th><th>Access</th><th>What it does</th><th>Example</th></tr></thead><tbody>
+                {[['/help','Everyone','Shows command help','/help'],['/rank [user]','Everyone','Shows level and XP','/rank'],['/status','Everyone','Shows bot ping/status','/status'],['/warn user reason','Staff','Adds a warning','/warn @user Spamming'],['/warnings user','Staff','Views warnings','/warnings @user'],['/purge amount','Staff','Deletes 1–100 recent messages','/purge 20'],['/announce message','Admin','Posts an announcement','/announce Market opens soon'],['/schedule channel time message','Admin','Schedules a daily IST post','/schedule #general 09:30 Good morning'],['/kick user [reason]','Admin','Kicks a member','/kick @user Rules breach'],['/ban user [reason]','Admin','Bans a member','/ban @user Repeated spam']].map(([command, access, description, example]) => <tr key={command}><td><span className="pill cyan">{command}</span></td><td>{access}</td><td>{description}</td><td><code>{example}</code></td></tr>)}
+              </tbody></table></div>
+            </div>
+          )}
+
           {activeTab === 'schedule' && (
             <div className="grid-2" style={{ gridTemplateColumns: '1fr 1.4fr' }}>
               <div className="glass-panel">

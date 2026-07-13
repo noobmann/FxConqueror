@@ -6,7 +6,10 @@ import {
   EmbedBuilder, 
   PermissionsBitField,
   GuildMember,
-  ButtonInteraction
+  ButtonInteraction,
+  SlashCommandBuilder,
+  ChatInputCommandInteraction,
+  ChannelType
 } from 'discord.js';
 import { getDb, saveDb, XpRecord, WarningRecord } from '../utils/db';
 
@@ -47,6 +50,23 @@ export const client = new Client({
   ]
 });
 
+const slashCommands = [
+  new SlashCommandBuilder().setName('help').setDescription('Show available bot commands'),
+  new SlashCommandBuilder().setName('rank').setDescription('Show a member rank').addUserOption(option => option.setName('user').setDescription('Member to check')),
+  new SlashCommandBuilder().setName('status').setDescription('Show bot status'),
+  new SlashCommandBuilder().setName('announce').setDescription('Send an announcement').addStringOption(option => option.setName('message').setDescription('Announcement text').setRequired(true)).addChannelOption(option => option.setName('channel').setDescription('Target text channel').addChannelTypes(ChannelType.GuildText)),
+  new SlashCommandBuilder().setName('schedule').setDescription('Schedule a daily IST message').addChannelOption(option => option.setName('channel').setDescription('Target text channel').addChannelTypes(ChannelType.GuildText).setRequired(true)).addStringOption(option => option.setName('time').setDescription('IST time, e.g. 09:30').setRequired(true)).addStringOption(option => option.setName('message').setDescription('Daily message').setRequired(true)),
+  new SlashCommandBuilder().setName('warn').setDescription('Warn a member').addUserOption(option => option.setName('user').setDescription('Member to warn').setRequired(true)).addStringOption(option => option.setName('reason').setDescription('Warning reason').setRequired(true)),
+  new SlashCommandBuilder().setName('warnings').setDescription('View member warnings').addUserOption(option => option.setName('user').setDescription('Member to check').setRequired(true)),
+  new SlashCommandBuilder().setName('purge').setDescription('Delete recent messages').addIntegerOption(option => option.setName('amount').setDescription('1 to 100 messages').setMinValue(1).setMaxValue(100).setRequired(true)),
+  new SlashCommandBuilder().setName('kick').setDescription('Kick a member').addUserOption(option => option.setName('user').setDescription('Member to kick').setRequired(true)).addStringOption(option => option.setName('reason').setDescription('Reason')),
+  new SlashCommandBuilder().setName('ban').setDescription('Ban a member').addUserOption(option => option.setName('user').setDescription('Member to ban').setRequired(true)).addStringOption(option => option.setName('reason').setDescription('Reason'))
+].map(command => command.toJSON());
+
+function hasStaffPermission(interaction: ChatInputCommandInteraction, permission: bigint) {
+  return Boolean(interaction.memberPermissions?.has(permission));
+}
+
 async function sendScheduledMessages() {
   const now = new Date();
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);
@@ -75,8 +95,72 @@ async function sendScheduledMessages() {
 // Event: Bot Ready
 client.once('ready', () => {
   addLog(`Bot is logged in as ${client.user?.tag}!`, 'info');
+  for (const guild of client.guilds.cache.values()) {
+    guild.commands.set(slashCommands).catch((err: any) => addLog(`Failed to register commands: ${err.message}`, 'error'));
+  }
   sendScheduledMessages();
   setInterval(sendScheduledMessages, 30_000);
+});
+
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+  const staff = () => hasStaffPermission(interaction, PermissionsBitField.Flags.ManageMessages);
+  const admin = () => hasStaffPermission(interaction, PermissionsBitField.Flags.Administrator);
+  const deny = async () => interaction.reply({ content: 'You do not have permission to use this command.', ephemeral: true });
+
+  try {
+    if (interaction.commandName === 'help') {
+      return void interaction.reply({ ephemeral: true, content: '**Everyone:** `/help`, `/rank`, `/status`\n**Staff:** `/warn`, `/warnings`, `/purge`\n**Admin:** `/announce`, `/schedule`, `/kick`, `/ban`' });
+    }
+    if (interaction.commandName === 'status') return void interaction.reply(`Bot is online. Ping: ${client.ws.ping}ms`);
+    if (interaction.commandName === 'rank') {
+      const user = interaction.options.getUser('user') || interaction.user;
+      const xp = getDb().xpData[user.id]; const level = xp?.level || 0; const points = xp?.xp || 0;
+      return void interaction.reply(`**${user.username}** — Level ${level}, ${points} XP`);
+    }
+    if (interaction.commandName === 'announce') {
+      if (!admin()) return void await deny();
+      const target = interaction.options.getChannel('channel') || interaction.channel;
+      if (!target || !('send' in target)) return void await interaction.reply({ content: 'Choose a text channel.', ephemeral: true });
+      await (target as TextChannel).send(interaction.options.getString('message', true));
+      return void interaction.reply({ content: 'Announcement sent.', ephemeral: true });
+    }
+    if (interaction.commandName === 'schedule') {
+      if (!admin()) return void await deny();
+      const timeIST = interaction.options.getString('time', true); const message = interaction.options.getString('message', true); const channel = interaction.options.getChannel('channel', true);
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(timeIST)) return void await interaction.reply({ content: 'Use IST time in HH:MM format, e.g. `09:30`.', ephemeral: true });
+      const db = getDb(); db.scheduledMessages = db.scheduledMessages || [];
+      db.scheduledMessages.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, channelId: channel.id, message, timeIST, enabled: true }); saveDb(db);
+      return void interaction.reply({ content: `Daily message scheduled in <#${channel.id}> at ${timeIST} IST.`, ephemeral: true });
+    }
+    if (interaction.commandName === 'warnings') {
+      if (!staff()) return void await deny();
+      const user = interaction.options.getUser('user', true); const warnings = getDb().warnings[user.id] || [];
+      return void interaction.reply({ ephemeral: true, content: warnings.length ? `**${user.username}** has ${warnings.length} warning(s):\n${warnings.map((w, i) => `${i + 1}. ${w.reason}`).join('\n')}` : `${user.username} has no warnings.` });
+    }
+    if (interaction.commandName === 'warn') {
+      if (!staff()) return void await deny();
+      const user = interaction.options.getUser('user', true); const reason = interaction.options.getString('reason', true);
+      addWarningToDb(user.id, reason); return void interaction.reply(`${user} has been warned: ${reason}`);
+    }
+    if (interaction.commandName === 'purge') {
+      if (!staff()) return void await deny();
+      if (!interaction.channel?.isTextBased() || !('bulkDelete' in interaction.channel)) return void await interaction.reply({ content: 'Use this in a server text channel.', ephemeral: true });
+      const amount = interaction.options.getInteger('amount', true); await (interaction.channel as TextChannel).bulkDelete(amount, true);
+      return void interaction.reply({ content: `Deleted up to ${amount} recent messages.`, ephemeral: true });
+    }
+    if (interaction.commandName === 'kick' || interaction.commandName === 'ban') {
+      if (!admin()) return void await deny();
+      const user = interaction.options.getUser('user', true); const member = await interaction.guild?.members.fetch(user.id); const reason = interaction.options.getString('reason') || 'Moderation action';
+      if (!member || !member.moderatable) return void await interaction.reply({ content: 'I cannot moderate that member.', ephemeral: true });
+      if (interaction.commandName === 'kick') await member.kick(reason); else await member.ban({ reason });
+      return void interaction.reply(`${interaction.commandName === 'kick' ? 'Kicked' : 'Banned'} ${user.tag}.`);
+    }
+  } catch (err: any) {
+    addLog(`Command ${interaction.commandName} failed: ${err.message}`, 'error');
+    if (interaction.replied || interaction.deferred) await interaction.followUp({ content: 'Command failed. Please try again.', ephemeral: true });
+    else await interaction.reply({ content: 'Command failed. Please try again.', ephemeral: true });
+  }
 });
 
 // Event: Button Interaction (Verification System)
