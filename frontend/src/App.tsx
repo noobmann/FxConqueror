@@ -843,7 +843,7 @@ const App: React.FC = () => {
           {theme === 'light' ? '🌙 Dark Mode' : '☀️ Light Mode'}
         </button>
 
-        <div className="glass-panel" style={{ width: '400px', padding: '2.5rem', textAlign: 'center' }}>
+        <div className="glass-panel" style={{ width: '100%', maxWidth: '400px', margin: '20px', padding: '2.5rem', textAlign: 'center' }}>
           <div style={{ fontSize: '3.5rem', marginBottom: '10px', filter: 'drop-shadow(0 4px 10px rgba(37,99,235,0.2))' }}>🛡️</div>
           <h2 style={{ fontSize: '1.45rem', fontWeight: 800, whiteSpace: 'nowrap', marginBottom: '5px' }}>Fx Conquerors Security</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '2rem' }}>Only server administrators can log in.</p>
