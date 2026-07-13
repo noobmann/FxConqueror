@@ -18,6 +18,21 @@ type AICategoryPlan = {
   channels: AIChannelPlan[];
 };
 
+type AIOrganizationSnapshot = {
+  id: string;
+  name: string;
+  parentId: string | null;
+};
+
+type AIOrganizationHistory = {
+  createdAt: number;
+  channels: AIOrganizationSnapshot[];
+  createdChannelIds: string[];
+  createdCategoryIds: string[];
+};
+
+const aiOrganizationHistory = new Map<string, AIOrganizationHistory>();
+
 function validateOrganizationPlan(
   input: unknown,
   existingChannels: Map<string, { id: string; type: number }>
@@ -127,6 +142,14 @@ function getGuild(guildId?: string) {
   return client.guilds.cache.first();
 }
 
+function protectedRoleError(role: any): string | null {
+  const name = role.name.toLowerCase().trim();
+  if (role.managed) return 'Bot-managed roles cannot be changed here.';
+  if (name === 'owner' || name.includes('core players')) return 'This protected founder role cannot be changed here.';
+  if (!role.editable) return 'The bot must be above this role in Discord role hierarchy.';
+  return null;
+}
+
 // ----------------------------------------------------
 // AUTHENTICATION & PUBLIC STATUS ROUTE
 // ----------------------------------------------------
@@ -210,12 +233,114 @@ router.get('/guild/roles', async (req: Request, res: Response) => {
       .map(r => ({
         id: r.id,
         name: r.name,
-        color: r.hexColor
+        color: r.hexColor,
+        memberCount: r.members.size,
+        protected: Boolean(protectedRoleError(r))
       }));
     res.json(sortedRoles);
   } catch (err: any) {
     res.status(500).json({ error: `Failed to fetch roles: ${err.message}` });
   }
+});
+
+router.post('/roles/create', async (req: Request, res: Response) => {
+  const guild = getGuild((req as any).guildId);
+  const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+  if (!guild || !name || name.length > 100) return res.status(400).json({ error: 'Enter a role name up to 100 characters.' });
+  try {
+    const role = await guild.roles.create({ name, color: /^#[0-9a-f]{6}$/i.test(req.body.color || '') ? req.body.color : undefined });
+    addLog(`Created role: ${role.name}`, 'info');
+    res.json({ message: `Created ${role.name}` });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/roles/update', async (req: Request, res: Response) => {
+  const guild = getGuild((req as any).guildId);
+  if (!guild) return res.status(404).json({ error: 'Guild unavailable' });
+  try {
+    const role = await guild.roles.fetch(req.body.roleId);
+    if (!role) return res.status(404).json({ error: 'Role not found' });
+    const blocked = protectedRoleError(role); if (blocked) return res.status(403).json({ error: blocked });
+    const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+    if (!name || name.length > 100) return res.status(400).json({ error: 'Enter a role name up to 100 characters.' });
+    await role.edit({ name, color: /^#[0-9a-f]{6}$/i.test(req.body.color || '') ? req.body.color : undefined });
+    res.json({ message: 'Role updated.' });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/roles/member', async (req: Request, res: Response) => {
+  const guild = getGuild((req as any).guildId);
+  if (!guild || !['add', 'remove'].includes(req.body.action)) return res.status(400).json({ error: 'Invalid role action.' });
+  try {
+    const role = await guild.roles.fetch(req.body.roleId);
+    const member = await guild.members.fetch(req.body.memberId);
+    if (!role || !member) return res.status(404).json({ error: 'Role or member not found.' });
+    const blocked = protectedRoleError(role); if (blocked) return res.status(403).json({ error: blocked });
+    if (req.body.action === 'add') await member.roles.add(role); else await member.roles.remove(role);
+    res.json({ message: `Role ${req.body.action === 'add' ? 'added to' : 'removed from'} ${member.user.username}.` });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/roles/replace', async (req: Request, res: Response) => {
+  const guild = getGuild((req as any).guildId);
+  if (!guild) return res.status(404).json({ error: 'Guild unavailable' });
+  try {
+    const from = await guild.roles.fetch(req.body.fromRoleId); const to = await guild.roles.fetch(req.body.toRoleId);
+    if (!from || !to || from.id === to.id) return res.status(400).json({ error: 'Select two different valid roles.' });
+    const blocked = protectedRoleError(from) || protectedRoleError(to); if (blocked) return res.status(403).json({ error: blocked });
+    const members = await guild.members.fetch(); let count = 0;
+    for (const member of members.values()) if (member.roles.cache.has(from.id)) { await member.roles.add(to); await member.roles.remove(from); count++; }
+    res.json({ message: `Replaced ${from.name} with ${to.name} for ${count} members.` });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/roles/delete', async (req: Request, res: Response) => {
+  const guild = getGuild((req as any).guildId);
+  if (!guild) return res.status(404).json({ error: 'Guild unavailable' });
+  try {
+    const role = await guild.roles.fetch(req.body.roleId); if (!role) return res.status(404).json({ error: 'Role not found.' });
+    const blocked = protectedRoleError(role); if (blocked) return res.status(403).json({ error: blocked });
+    await role.delete('Deleted from dashboard role editor'); res.json({ message: 'Role deleted.' });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/ai/role-advice', async (req: Request, res: Response) => {
+  const guild = getGuild((req as any).guildId);
+  const apiKey = req.body.geminiApiKey || process.env.GEMINI_API_KEY;
+  if (!guild || !apiKey) return res.status(400).json({ error: 'A Gemini API key is required for AI role advice.' });
+  try {
+    const roles = await guild.roles.fetch();
+    const roleList = roles.filter(r => r.name !== '@everyone').map(r => ({ name: r.name, members: r.members.size, managed: r.managed }));
+    const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const result = await model.generateContent(`Review these Discord roles. Give a concise safe cleanup plan. Never advise deleting owner, founder/core, staff, or managed bot roles without confirmation. Roles: ${JSON.stringify(roleList)}`);
+    res.json({ advice: result.response.text().trim() });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/scheduled-messages', (_req: Request, res: Response) => res.json(getDb().scheduledMessages || []));
+
+router.post('/scheduled-messages', (req: Request, res: Response) => {
+  const { channelId, message, timeIST } = req.body;
+  if (typeof channelId !== 'string' || typeof message !== 'string' || !message.trim() || message.length > 2000 || !/^([01]\d|2[0-3]):[0-5]\d$/.test(timeIST || '')) {
+    return res.status(400).json({ error: 'Choose a channel, message, and valid IST time.' });
+  }
+  const db = getDb();
+  db.scheduledMessages = db.scheduledMessages || [];
+  db.scheduledMessages.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, channelId, message: message.trim(), timeIST, enabled: true });
+  saveDb(db); res.json({ message: 'Daily IST message scheduled.', schedules: db.scheduledMessages });
+});
+
+router.post('/scheduled-messages/toggle', (req: Request, res: Response) => {
+  const db = getDb(); const schedule = (db.scheduledMessages || []).find(item => item.id === req.body.id);
+  if (!schedule) return res.status(404).json({ error: 'Schedule not found.' });
+  schedule.enabled = !schedule.enabled; saveDb(db); res.json({ message: `Schedule ${schedule.enabled ? 'enabled' : 'paused'}.`, schedules: db.scheduledMessages });
+});
+
+router.post('/scheduled-messages/delete', (req: Request, res: Response) => {
+  const db = getDb(); const before = (db.scheduledMessages || []).length;
+  db.scheduledMessages = (db.scheduledMessages || []).filter(item => item.id !== req.body.id);
+  if (db.scheduledMessages.length === before) return res.status(404).json({ error: 'Schedule not found.' });
+  saveDb(db); res.json({ message: 'Schedule deleted.', schedules: db.scheduledMessages });
 });
 
 router.post('/settings/moderation', async (req: Request, res: Response) => {
@@ -673,6 +798,18 @@ router.post('/ai/apply-sorting', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid or unsafe AI organization plan. Generate a new suggestion and review it before applying.' });
     }
 
+    const history: AIOrganizationHistory | null = removeDuplicates
+      ? null
+      : {
+          createdAt: Date.now(),
+          channels: fetchedChannels
+            .filter(c => c !== null && (c.type === 0 || c.type === 2 || c.type === 5))
+            .map(c => ({ id: c!.id, name: c!.name, parentId: c!.parentId })),
+          createdChannelIds: [],
+          createdCategoryIds: []
+        };
+    if (history) aiOrganizationHistory.set(guild.id, history);
+
     if (removeDuplicates) {
       addLog('Scanning for duplicate channel names within the same category...', 'info');
       const allChannels = fetchedChannels;
@@ -713,6 +850,7 @@ router.post('/ai/apply-sorting', async (req: Request, res: Response) => {
           type: 4
         });
         createdCategoryIds.add(categoryChannel.id);
+        history?.createdCategoryIds.push(categoryChannel.id);
         addLog(`Created category: "${group.category}"`, 'info');
       }
 
@@ -735,6 +873,7 @@ router.post('/ai/apply-sorting', async (req: Request, res: Response) => {
                   type: channelObj.type,
                   parent: categoryChannel.id
                 });
+                history?.createdChannelIds.push((newChan as any).id);
                 addLog(`Created new AI recommended channel: #${(newChan as any).name} under category "${group.category}"`, 'info');
               } catch (createErr: any) {
                 addLog(`Failed to create recommended channel ${channelObj.name}: ${createErr.message}`, 'warn');
@@ -788,10 +927,60 @@ router.post('/ai/apply-sorting', async (req: Request, res: Response) => {
       }
     }
 
-    res.json({ message: 'Server channels successfully organized and sorted by AI!' });
+    res.json({
+      message: 'Server channels successfully organized and sorted by AI!',
+      undoAvailable: Boolean(history),
+      note: history ? 'You can undo this AI organization from the dashboard.' : 'Undo is unavailable because duplicate deletion was enabled.'
+    });
   } catch (err: any) {
     addLog(`Failed to apply channel sorting: ${err.message}`, 'error');
     res.status(500).json({ error: `Failed to organize channels: ${err.message}` });
+  }
+});
+
+// Undo the most recent non-destructive AI organization for this server.
+router.post('/ai/undo-sorting', async (req: Request, res: Response) => {
+  const guild = getGuild((req as any).guildId);
+  if (!guild) return res.status(404).json({ error: 'Guild connection not available' });
+
+  const history = aiOrganizationHistory.get(guild.id);
+  if (!history) return res.status(404).json({ error: 'No reversible AI organization was found for this server.' });
+
+  try {
+    for (const state of history.channels) {
+      try {
+        const channel = await guild.channels.fetch(state.id);
+        if (!channel || !(channel.type === 0 || channel.type === 2 || channel.type === 5)) continue;
+        await (channel as any).setParent(state.parentId, { lockPermissions: false });
+        if (channel.name !== state.name) await (channel as any).setName(state.name);
+      } catch (channelErr: any) {
+        addLog(`Could not restore channel ${state.id}: ${channelErr.message}`, 'warn');
+      }
+    }
+
+    for (const channelId of history.createdChannelIds) {
+      try {
+        const channel = await guild.channels.fetch(channelId);
+        if (channel) await channel.delete('Undo AI organization');
+      } catch (channelErr: any) {
+        addLog(`Could not remove AI-created channel ${channelId}: ${channelErr.message}`, 'warn');
+      }
+    }
+
+    const allChannels = await guild.channels.fetch();
+    for (const categoryId of history.createdCategoryIds) {
+      const category = allChannels.get(categoryId);
+      if (!category || category.type !== 4) continue;
+      const children = allChannels.filter(c => c !== null && c.parentId === categoryId);
+      if (children.size === 0) await category.delete('Undo AI organization');
+    }
+
+    aiOrganizationHistory.delete(guild.id);
+    addLog('Undid the most recent AI channel organization.', 'info');
+    res.json({ message: 'AI organization was undone. Existing channels were restored and AI-created channels were removed.' });
+  } catch (err: any) {
+    addLog(`Failed to undo AI organization: ${err.message}`, 'error');
+    res.status(500).json({ error: `Unable to undo AI organization: ${err.message}` });
   }
 });
 
@@ -844,6 +1033,44 @@ router.post('/ai/rename-channel', async (req: Request, res: Response) => {
   } catch (err: any) {
     addLog(`AI Channel Rename failed: ${err.message}`, 'error');
     res.status(500).json({ error: `AI Rename failed: ${err.message}` });
+  }
+});
+
+// Draft a broadcaster post; the dashboard always lets the moderator review it before sending.
+router.post('/ai/generate-post', async (req: Request, res: Response) => {
+  const { prompt, postType, geminiApiKey } = req.body as {
+    prompt?: unknown; postType?: unknown; geminiApiKey?: unknown;
+  };
+  if (typeof prompt !== 'string' || !prompt.trim() || (postType !== 'text' && postType !== 'embed')) {
+    return res.status(400).json({ error: 'Provide a post idea and choose text or embed format.' });
+  }
+
+  const apiKey = (typeof geminiApiKey === 'string' && geminiApiKey) || process.env.GEMINI_API_KEY;
+  if (!apiKey) return res.status(400).json({ error: 'Add a Gemini API key before generating a post.' });
+
+  try {
+    const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const format = postType === 'text'
+      ? '{"content":"Discord-ready post, maximum 1900 characters"}'
+      : '{"title":"short title", "description":"Discord embed body, maximum 3900 characters", "color":"#2563eb"}';
+    const result = await model.generateContent(
+      `Write a concise, friendly Discord ${postType} post for this request: ${prompt.trim()}. ` +
+      `Return only valid JSON matching: ${format}. Do not mention that AI wrote it.`
+    );
+    const raw = result.response.text().trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
+    const draft = JSON.parse(raw) as { content?: unknown; title?: unknown; description?: unknown; color?: unknown };
+
+    if (postType === 'text') {
+      if (typeof draft.content !== 'string' || !draft.content.trim()) throw new Error('AI returned an invalid text draft');
+      return res.json({ draft: { content: draft.content.trim().slice(0, 1900) } });
+    }
+
+    if (typeof draft.title !== 'string' || typeof draft.description !== 'string') throw new Error('AI returned an invalid embed draft');
+    const color = typeof draft.color === 'string' && /^#[0-9a-f]{6}$/i.test(draft.color) ? draft.color : '#2563eb';
+    return res.json({ draft: { title: draft.title.trim().slice(0, 256), description: draft.description.trim().slice(0, 3900), color } });
+  } catch (err: any) {
+    addLog(`AI post generation failed: ${err.message}`, 'error');
+    return res.status(500).json({ error: `AI post generation failed: ${err.message}` });
   }
 });
 

@@ -20,7 +20,7 @@ export const activityLogs: LogEntry[] = [];
 
 export function addLog(message: string, level: 'info' | 'warn' | 'error' = 'info') {
   const entry: LogEntry = {
-    timestamp: new Date().toLocaleTimeString(),
+    timestamp: new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }),
     level,
     message
   };
@@ -47,9 +47,36 @@ export const client = new Client({
   ]
 });
 
+async function sendScheduledMessages() {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);
+  const part = (type: string) => parts.find(item => item.type === type)?.value || '';
+  const timeIST = `${part('hour')}:${part('minute')}`;
+  const dateIST = `${part('year')}-${part('month')}-${part('day')}`;
+  const db = getDb();
+  let changed = false;
+
+  for (const schedule of db.scheduledMessages || []) {
+    if (!schedule.enabled || schedule.timeIST !== timeIST || schedule.lastSentDate === dateIST) continue;
+    try {
+      const channel = await client.channels.fetch(schedule.channelId);
+      if (!channel || !channel.isTextBased()) throw new Error('Text channel not found');
+      await (channel as TextChannel).send(schedule.message);
+      schedule.lastSentDate = dateIST;
+      changed = true;
+      addLog(`Sent scheduled IST message to #${(channel as any).name}`, 'info');
+    } catch (err: any) {
+      addLog(`Scheduled message failed: ${err.message}`, 'warn');
+    }
+  }
+  if (changed) saveDb(db);
+}
+
 // Event: Bot Ready
 client.once('ready', () => {
   addLog(`Bot is logged in as ${client.user?.tag}!`, 'info');
+  sendScheduledMessages();
+  setInterval(sendScheduledMessages, 30_000);
 });
 
 // Event: Button Interaction (Verification System)

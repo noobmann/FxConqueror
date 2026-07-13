@@ -62,6 +62,15 @@ export interface VerificationSettings {
   embedColor: string;
 }
 
+export interface ScheduledMessage {
+  id: string;
+  channelId: string;
+  message: string;
+  timeIST: string;
+  enabled: boolean;
+  lastSentDate?: string;
+}
+
 export interface Credentials {
   discordToken?: string;
   geminiApiKey?: string;
@@ -81,6 +90,7 @@ export interface DatabaseSchema {
   warnings: Record<string, WarningRecord[]>;
   credentials?: Credentials;
   verificationSettings?: VerificationSettings;
+  scheduledMessages: ScheduledMessage[];
 }
 
 const DB_PATH = path.join(__dirname, '../../database.json');
@@ -101,6 +111,7 @@ const defaultDb: DatabaseSchema = {
     message: 'Goodbye {user}, we will miss you!'
   },
   reactionRoles: [],
+  scheduledMessages: [],
   triggers: [],
   auditLogChannelId: '',
   levelingSettings: {

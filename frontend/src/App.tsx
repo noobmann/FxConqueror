@@ -93,6 +93,8 @@ interface DiscordRole {
   id: string;
   name: string;
   color: string;
+  memberCount: number;
+  protected: boolean;
 }
 
 interface LogEntry {
@@ -134,6 +136,8 @@ interface PollOption {
   emoji: string;
 }
 
+interface ScheduledMessage { id: string; channelId: string; message: string; timeIST: string; enabled: boolean; }
+
 const App: React.FC = () => {
   const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
@@ -152,7 +156,7 @@ const App: React.FC = () => {
   });
 
   // Navigation State
-  const [activeTab, setActiveTab] = useState<'overview' | 'moderation' | 'welcome' | 'levels' | 'automod' | 'triggers' | 'aiHub' | 'broadcaster'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'moderation' | 'welcome' | 'levels' | 'automod' | 'triggers' | 'aiHub' | 'broadcaster' | 'roles' | 'schedule'>('overview');
   const [mobileMoreOpen, setMobileMoreOpen] = useState<boolean>(false);
 
   // Server Fetch States
@@ -200,6 +204,17 @@ const App: React.FC = () => {
   const [blockLinks, setBlockLinks] = useState<boolean>(false);
   const [blockCaps, setBlockCaps] = useState<boolean>(false);
   const [newBadWord, setNewBadWord] = useState<string>('');
+  const [selectedRoleId, setSelectedRoleId] = useState<string>('');
+  const [roleName, setRoleName] = useState<string>('');
+  const [roleColor, setRoleColor] = useState<string>('#5865f2');
+  const [roleMemberId, setRoleMemberId] = useState<string>('');
+  const [replaceRoleId, setReplaceRoleId] = useState<string>('');
+  const [roleLoading, setRoleLoading] = useState<boolean>(false);
+  const [roleAdvice, setRoleAdvice] = useState<string>('');
+  const [scheduledMessages, setScheduledMessages] = useState<ScheduledMessage[]>([]);
+  const [scheduleChannelId, setScheduleChannelId] = useState<string>('');
+  const [scheduleMessage, setScheduleMessage] = useState<string>('');
+  const [scheduleTimeIST, setScheduleTimeIST] = useState<string>('09:00');
 
   // Tab 6: Custom Triggers States
   const [triggers, setTriggers] = useState<Trigger[]>([]);
@@ -211,6 +226,7 @@ const App: React.FC = () => {
   const [aiSortingSuggestions, setAiSortingSuggestions] = useState<AISortingSuggestion | null>(null);
   const [aiNote, setAiNote] = useState<string | null>(null);
   const [aiBuilding, setAiBuilding] = useState<boolean>(false);
+  const [aiUndoAvailable, setAiUndoAvailable] = useState<boolean>(false);
   const [cleanLeftovers, setCleanLeftovers] = useState<boolean>(false);
   const [removeDuplicates, setRemoveDuplicates] = useState<boolean>(false);
   const [createMissing, setCreateMissing] = useState<boolean>(false);
@@ -238,6 +254,8 @@ const App: React.FC = () => {
   const [broadcasterImageUrl, setBroadcasterImageUrl] = useState<string>('');
   const [broadcasterImageBase64, setBroadcasterImageBase64] = useState<string>('');
   const [broadcasterImageName, setBroadcasterImageName] = useState<string>('');
+  const [aiPostPrompt, setAiPostPrompt] = useState<string>('');
+  const [aiPostLoading, setAiPostLoading] = useState<boolean>(false);
 
   // Verification System States
   const [verifyEnabled, setVerifyEnabled] = useState<boolean>(false);
@@ -361,17 +379,19 @@ const App: React.FC = () => {
       }
 
       if (statusData.guildId) {
-        const [channelsRes, rolesRes, membersRes, logsRes] = await Promise.all([
+        const [channelsRes, rolesRes, membersRes, logsRes, schedulesRes] = await Promise.all([
           fetchAuth(`${API_BASE}/guild/channels`),
           fetchAuth(`${API_BASE}/guild/roles`),
           fetchAuth(`${API_BASE}/guild/members`),
-          fetchAuth(`${API_BASE}/logs`)
+          fetchAuth(`${API_BASE}/logs`),
+          fetchAuth(`${API_BASE}/scheduled-messages`)
         ]);
 
         if (channelsRes.ok) setChannels(await channelsRes.json());
         if (rolesRes.ok) setRoles(await rolesRes.json());
         if (membersRes.ok) setMembers(await membersRes.json());
         if (logsRes.ok) setLogs(await logsRes.json());
+        if (schedulesRes.ok) setScheduledMessages(await schedulesRes.json());
       }
       
       setLoading(false);
@@ -666,6 +686,47 @@ const App: React.FC = () => {
     handleSave(`${API_BASE}/settings/triggers`, { triggers: updated }, 'Auto-responder removed.');
   };
 
+  const runRoleAction = async (url: string, body: any, successMsg?: string) => {
+    setRoleLoading(true);
+    try {
+      const res = await fetchAuth(`${API_BASE}${url}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setSaveStatus({ type: 'success', msg: successMsg || data.message });
+      setTimeout(() => setSaveStatus({ type: null, msg: null }), 3000);
+      const rolesRes = await fetchAuth(`${API_BASE}/guild/roles`);
+      if (rolesRes.ok) setRoles(await rolesRes.json());
+      pollData();
+      return data;
+    } catch (err: any) {
+      alert(`Role action failed: ${err.message}`);
+    } finally { setRoleLoading(false); }
+  };
+
+  const selectedRole = roles.find(role => role.id === selectedRoleId);
+  const selectRole = (id: string) => {
+    const role = roles.find(item => item.id === id);
+    setSelectedRoleId(id); setRoleName(role?.name || ''); setRoleColor(role?.color || '#5865f2');
+  };
+
+  const getAIRoleAdvice = async () => {
+    setRoleLoading(true);
+    try {
+      const res = await fetchAuth(`${API_BASE}/ai/role-advice`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ geminiApiKey }) });
+      const data = await res.json(); if (!res.ok) throw new Error(data.error);
+      setRoleAdvice(data.advice);
+    } catch (err: any) { alert(`AI role advice failed: ${err.message}`); }
+    finally { setRoleLoading(false); }
+  };
+
+  const saveSchedule = async () => {
+    const data = await runRoleAction('/scheduled-messages', { channelId: scheduleChannelId, message: scheduleMessage, timeIST: scheduleTimeIST });
+    if (data?.schedules) { setScheduledMessages(data.schedules); setScheduleMessage(''); }
+  };
+  const updateSchedule = async (url: string, id: string) => {
+    const data = await runRoleAction(url, { id }); if (data?.schedules) setScheduledMessages(data.schedules);
+  };
+
   // Tab 7: AI Hub Actions (Sorting & Organizing)
   const handleAISuggestSorting = async () => {
     setAiLoading(true);
@@ -714,12 +775,64 @@ const App: React.FC = () => {
 
       setSaveStatus({ type: 'success', msg: data.message });
       setTimeout(() => setSaveStatus({ type: null, msg: null }), 3000);
+      setAiUndoAvailable(Boolean(data.undoAvailable));
       setAiSortingSuggestions(null);
       initFetch(); // Reload channels layout
     } catch (err: any) {
       alert(`AI Apply Sorting error: ${err.message}`);
     } finally {
       setAiBuilding(false);
+    }
+  };
+
+  const handleAIUndoSorting = async () => {
+    if (!window.confirm('Undo the most recent AI organization? Moved channels and AI-created channels will be restored.')) return;
+    setAiBuilding(true);
+    try {
+      const res = await fetchAuth(`${API_BASE}/ai/undo-sorting`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setSaveStatus({ type: 'success', msg: data.message });
+      setTimeout(() => setSaveStatus({ type: null, msg: null }), 4000);
+      setAiUndoAvailable(false);
+      initFetch();
+    } catch (err: any) {
+      alert(`AI Undo error: ${err.message}`);
+    } finally {
+      setAiBuilding(false);
+    }
+  };
+
+  const handleAIGeneratePost = async () => {
+    if (!aiPostPrompt.trim()) {
+      alert('Write a short idea for the post first.');
+      return;
+    }
+    if (broadcasterPostType === 'poll') {
+      alert('AI drafting is available for text and embed posts. Choose one of those formats first.');
+      return;
+    }
+    setAiPostLoading(true);
+    try {
+      const res = await fetchAuth(`${API_BASE}/ai/generate-post`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: aiPostPrompt, postType: broadcasterPostType, geminiApiKey })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      if (broadcasterPostType === 'text') setBroadcasterTextContent(data.draft.content);
+      else {
+        setBroadcasterEmbedTitle(data.draft.title);
+        setBroadcasterTextContent(data.draft.description);
+        setBroadcasterEmbedColor(data.draft.color);
+      }
+      setSaveStatus({ type: 'success', msg: 'AI draft added. Review it before posting.' });
+      setTimeout(() => setSaveStatus({ type: null, msg: null }), 3000);
+    } catch (err: any) {
+      alert(`AI post generation failed: ${err.message}`);
+    } finally {
+      setAiPostLoading(false);
     }
   };
 
@@ -975,6 +1088,12 @@ const App: React.FC = () => {
             >
               &hellip; <span>More</span>
             </button>
+            <button className={`sidebar-btn ${activeTab === 'roles' ? 'active' : ''}`} onClick={() => setActiveTab('roles')}>
+              Roles <span>Role Editor</span>
+            </button>
+            <button className={`sidebar-btn ${activeTab === 'schedule' ? 'active' : ''}`} onClick={() => setActiveTab('schedule')}>
+              Time <span>Daily Schedule</span>
+            </button>
           </nav>
         </div>
 
@@ -1020,6 +1139,8 @@ const App: React.FC = () => {
               <button onClick={() => { setActiveTab('moderation'); setMobileMoreOpen(false); }}>Rules <span>Channels & Rules</span></button>
               <button onClick={() => { setActiveTab('welcome'); setMobileMoreOpen(false); }}>Welcome <span>Welcome & Goodbye</span></button>
               <button onClick={() => { setActiveTab('levels'); setMobileMoreOpen(false); }}>Levels <span>Levels & Members</span></button>
+              <button onClick={() => { setActiveTab('roles'); setMobileMoreOpen(false); }}>Roles <span>Role Editor</span></button>
+              <button onClick={() => { setActiveTab('schedule'); setMobileMoreOpen(false); }}>Time <span>Daily Schedule</span></button>
               <button onClick={() => { setActiveTab('automod'); setMobileMoreOpen(false); }}>Auto-mod <span>Auto-Moderation</span></button>
               <button onClick={() => { setActiveTab('triggers'); setMobileMoreOpen(false); }}>Triggers <span>Custom Triggers</span></button>
               <button onClick={() => { setActiveTab('aiHub'); setMobileMoreOpen(false); }}>AI <span>AI Organizer</span></button>
@@ -1539,6 +1660,50 @@ const App: React.FC = () => {
           )}
 
           {/* TAB CONTENT: Auto-Moderation */}
+          {activeTab === 'schedule' && (
+            <div className="grid-2" style={{ gridTemplateColumns: '1fr 1.4fr' }}>
+              <div className="glass-panel">
+                <h2 style={{ marginBottom: '6px' }}>Daily Scheduled Message</h2>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '16px' }}>Messages send daily in India Standard Time (IST).</p>
+                <div className="form-group"><label>Text channel</label><select className="form-select" value={scheduleChannelId} onChange={e => setScheduleChannelId(e.target.value)}><option value="">-- Select channel --</option>{channels.filter(channel => channel.type !== 2).map(channel => <option key={channel.id} value={channel.id}>#{channel.name}</option>)}</select></div>
+                <div className="form-group"><label>Time (IST)</label><input type="time" className="form-input" value={scheduleTimeIST} onChange={e => setScheduleTimeIST(e.target.value)} /></div>
+                <div className="form-group"><label>Message</label><textarea className="form-textarea" value={scheduleMessage} onChange={e => setScheduleMessage(e.target.value)} placeholder="Good morning traders. Market update will be posted soon." /></div>
+                <button className="btn" disabled={roleLoading || !scheduleChannelId || !scheduleMessage.trim()} onClick={saveSchedule}>Schedule daily message</button>
+              </div>
+              <div className="glass-panel">
+                <h3 style={{ marginBottom: '14px' }}>Active schedules</h3>
+                {scheduledMessages.length === 0 ? <div className="empty-state">No daily messages scheduled yet.</div> : scheduledMessages.map(schedule => {
+                  const channelName = channels.find(channel => channel.id === schedule.channelId)?.name || 'Unknown channel';
+                  return <div key={schedule.id} style={{ padding: '13px 0', borderBottom: '1px solid var(--panel-border)' }}><div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px' }}><strong>#{channelName} · {schedule.timeIST} IST</strong><span className={`pill ${schedule.enabled ? 'green' : 'red'}`}>{schedule.enabled ? 'Active' : 'Paused'}</span></div><p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '7px 0 10px', whiteSpace: 'pre-wrap' }}>{schedule.message}</p><div style={{ display: 'flex', gap: '8px' }}><button className="btn btn-secondary" disabled={roleLoading} onClick={() => updateSchedule('/scheduled-messages/toggle', schedule.id)}>{schedule.enabled ? 'Pause' : 'Enable'}</button><button className="btn btn-danger" disabled={roleLoading} onClick={() => { if (window.confirm('Delete this daily schedule?')) updateSchedule('/scheduled-messages/delete', schedule.id); }}>Delete</button></div></div>;
+                })}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'roles' && (
+            <div className="grid-2" style={{ gridTemplateColumns: '1fr 1.4fr' }}>
+              <div className="glass-panel">
+                <h2 style={{ marginBottom: '6px' }}>Role Editor</h2>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '14px' }}>Protected founder, owner and bot roles cannot be edited here.</p>
+                <div className="form-group"><label>Select role</label><select className="form-select" value={selectedRoleId} onChange={e => selectRole(e.target.value)}><option value="">-- Select role --</option>{roles.map(role => <option key={role.id} value={role.id}>{role.name} ({role.memberCount} members){role.protected ? ' - protected' : ''}</option>)}</select></div>
+                <div className="form-group"><label>Role name</label><input className="form-input" value={roleName} onChange={e => setRoleName(e.target.value)} placeholder="New role name" /></div>
+                <div className="form-group"><label>Role color</label><input type="color" value={roleColor} onChange={e => setRoleColor(e.target.value)} /></div>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                  <button className="btn" disabled={roleLoading || !roleName.trim()} onClick={() => runRoleAction(selectedRoleId ? '/roles/update' : '/roles/create', selectedRoleId ? { roleId: selectedRoleId, name: roleName, color: roleColor } : { name: roleName, color: roleColor })}>{selectedRoleId ? 'Save role' : 'Create role'}</button>
+                  {selectedRoleId && <button className="btn btn-danger" disabled={roleLoading || selectedRole?.protected} onClick={() => { if (window.confirm(`Delete ${selectedRole?.name}? This cannot be undone.`)) runRoleAction('/roles/delete', { roleId: selectedRoleId }); }}>Delete role</button>}
+                </div>
+              </div>
+              <div className="glass-panel">
+                <h3 style={{ marginBottom: '14px' }}>Members & cleanup</h3>
+                <div className="form-group"><label>Choose member</label><select className="form-select" value={roleMemberId} onChange={e => setRoleMemberId(e.target.value)}><option value="">-- Select member --</option>{members.map(member => <option key={member.id} value={member.id}>{member.tag}</option>)}</select></div>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '20px' }}><button className="btn btn-secondary" disabled={roleLoading || !selectedRoleId || !roleMemberId || selectedRole?.protected} onClick={() => runRoleAction('/roles/member', { roleId: selectedRoleId, memberId: roleMemberId, action: 'add' })}>Add member</button><button className="btn btn-secondary" disabled={roleLoading || !selectedRoleId || !roleMemberId || selectedRole?.protected} onClick={() => runRoleAction('/roles/member', { roleId: selectedRoleId, memberId: roleMemberId, action: 'remove' })}>Remove member</button></div>
+                <div className="form-group"><label>Replace selected role with</label><select className="form-select" value={replaceRoleId} onChange={e => setReplaceRoleId(e.target.value)}><option value="">-- Replacement role --</option>{roles.filter(role => role.id !== selectedRoleId).map(role => <option key={role.id} value={role.id}>{role.name}</option>)}</select></div>
+                <button className="btn btn-secondary" disabled={roleLoading || !selectedRoleId || !replaceRoleId || selectedRole?.protected} onClick={() => { if (window.confirm('Replace this role for every member?')) runRoleAction('/roles/replace', { fromRoleId: selectedRoleId, toRoleId: replaceRoleId }); }}>Replace role for all members</button>
+                <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--panel-border)' }}><h3 style={{ marginBottom: '6px' }}>AI cleanup advice</h3><p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '10px' }}>Suggestions only—AI never edits roles automatically.</p><button className="btn" disabled={roleLoading} onClick={getAIRoleAdvice}>Ask AI to review roles</button>{roleAdvice && <pre className="logs-box" style={{ whiteSpace: 'pre-wrap', marginTop: '12px', maxHeight: '260px' }}>{roleAdvice}</pre>}</div>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'automod' && (
             <div className="glass-panel">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--panel-border)', paddingBottom: '10px' }}>
@@ -1866,6 +2031,14 @@ const App: React.FC = () => {
                     </div>
                   </div>
                 )}
+                {aiUndoAvailable && !aiSortingSuggestions && (
+                  <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--panel-border)' }}>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '10px' }}>
+                      Last AI organization can be reverted. Messages and changes made after it will not be modified.
+                    </p>
+                    <button className="btn btn-secondary" onClick={handleAIUndoSorting} disabled={aiBuilding}>Undo last AI organization</button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1931,9 +2104,25 @@ const App: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Right Column: Form Inputs based on Selection */}
-                  <div style={{ background: 'rgba(0, 0, 0, 0.01)', border: '1px solid var(--panel-border)', padding: '24px', borderRadius: '12px' }}>
-                    
+                   {/* Right Column: Form Inputs based on Selection */}
+                   <div style={{ background: 'rgba(0, 0, 0, 0.01)', border: '1px solid var(--panel-border)', padding: '24px', borderRadius: '12px' }}>
+                    {broadcasterPostType !== 'poll' && (
+                      <div style={{ marginBottom: '20px', padding: '14px', borderRadius: '10px', background: 'var(--panel-bg)', border: '1px solid var(--panel-border)' }}>
+                        <label style={{ display: 'block', marginBottom: '8px', fontWeight: 700 }}>AI Post Generator</label>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '10px' }}>Describe what you want to announce. AI creates a draft; you review and edit it before posting.</p>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <input
+                            className="form-input"
+                            value={aiPostPrompt}
+                            onChange={(e) => setAiPostPrompt(e.target.value)}
+                            placeholder="Example: Announce Friday live trading session at 7 PM"
+                          />
+                          <button type="button" className="btn btn-secondary" onClick={handleAIGeneratePost} disabled={aiPostLoading}>
+                            {aiPostLoading ? 'Drafting...' : 'Generate'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     {/* TEXT TYPE */}
                     {broadcasterPostType === 'text' && (
                       <div>
