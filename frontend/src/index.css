@@ -820,8 +820,8 @@ input:checked + .slider:before {
     flex-direction: row;
     gap: 4px;
     width: 100%;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
+    justify-content: space-between;
+    overflow: hidden;
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
   }
@@ -836,7 +836,8 @@ input:checked + .slider:before {
   }
 
   .sidebar-btn {
-    flex: 0 0 68px;
+    flex: 1 1 0;
+    min-width: 0;
     min-height: 58px;
     padding: 6px 4px;
     border-radius: 12px;
@@ -856,15 +857,20 @@ input:checked + .slider:before {
   }
 
   .sidebar-btn span {
-    max-width: 64px;
-    justify-content: center;
-    overflow: hidden;
-    color: inherit;
-    font-size: 0.62rem;
-    line-height: 1.1;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    display: none;
   }
+
+  .sidebar-btn::after {
+    color: inherit;
+    font-size: 0.66rem;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+
+  .sidebar-btn:nth-child(1)::after { content: 'Home'; }
+  .sidebar-btn:nth-child(2)::after { content: 'Rules'; }
+  .sidebar-btn:nth-child(3)::after { content: 'Welcome'; }
+  .mobile-more-btn::after { content: 'More'; }
 
   .main-content {
     margin-left: 0;
@@ -874,6 +880,8 @@ input:checked + .slider:before {
   }
 
   .main-header {
+    flex-direction: column;
+    align-items: stretch;
     gap: 10px;
     padding: 12px;
     margin-bottom: 0;
@@ -887,6 +895,12 @@ input:checked + .slider:before {
   
   .guild-info-bar h2 {
     font-size: 1rem;
+  }
+
+  .main-header > div:last-child,
+  .main-header .status-badge {
+    width: 100%;
+    justify-content: center;
   }
   
   .grid-2 {
@@ -1105,12 +1119,4 @@ input:checked + .slider:before {
     padding: 8px 12px;
   }
 
-  .main-header > div:last-child {
-    width: 100%;
-  }
-
-  .main-header .status-badge {
-    width: 100%;
-    justify-content: center;
-  }
 }
