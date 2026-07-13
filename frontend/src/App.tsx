@@ -720,6 +720,89 @@ const App: React.FC = () => {
     finally { setRoleLoading(false); }
   };
 
+  const renderFormattedAdvice = (text: string) => {
+    if (!text) return null;
+    const lines = text.split('\n');
+    return (
+      <div style={{
+        marginTop: '12px',
+        padding: '16px',
+        background: 'rgba(0, 0, 0, 0.02)',
+        border: '1px solid var(--panel-border)',
+        borderRadius: '8px',
+        maxHeight: '300px',
+        overflowY: 'auto',
+        fontSize: '0.9rem',
+        lineHeight: '1.6',
+        color: 'var(--text-primary)'
+      }}>
+        {lines.map((line, index) => {
+          let cleanLine = line.trim();
+          if (!cleanLine) return <div key={index} style={{ height: '8px' }} />;
+          
+          let isHeading = false;
+          let isBullet = false;
+          
+          if (cleanLine.startsWith('###')) {
+            cleanLine = cleanLine.replace(/^###\s*/, '');
+            isHeading = true;
+          } else if (cleanLine.startsWith('##')) {
+            cleanLine = cleanLine.replace(/^##\s*/, '');
+            isHeading = true;
+          } else if (cleanLine.startsWith('#')) {
+            cleanLine = cleanLine.replace(/^#\s*/, '');
+            isHeading = true;
+          }
+          
+          if (cleanLine.startsWith('* ') || cleanLine.startsWith('- ')) {
+            cleanLine = cleanLine.replace(/^[\*\-]\s*/, '');
+            isBullet = true;
+          }
+          
+          const parseInlineFormatting = (str: string) => {
+            const parts = str.split(/(\*\*.*?\*\*|`.*?`)/g);
+            return parts.map((part, pIdx) => {
+              if (part.startsWith('**') && part.endsWith('**')) {
+                return <strong key={pIdx} style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{part.slice(2, -2)}</strong>;
+              }
+              if (part.startsWith('`') && part.endsWith('`')) {
+                return (
+                  <code key={pIdx} style={{
+                    background: 'rgba(37, 99, 235, 0.08)',
+                    color: 'var(--accent-blue)',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    fontSize: '0.85em',
+                    fontWeight: 600,
+                    margin: '0 2px'
+                  }}>
+                    {part.slice(1, -1)}
+                  </code>
+                );
+              }
+              return part;
+            });
+          };
+          
+          if (isHeading) {
+            return <h4 key={index} style={{ margin: '14px 0 8px 0', fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>{parseInlineFormatting(cleanLine)}</h4>;
+          }
+          
+          if (isBullet) {
+            return (
+              <div key={index} style={{ display: 'flex', gap: '8px', margin: '4px 0 4px 12px', alignItems: 'flex-start' }}>
+                <span style={{ color: 'var(--accent-blue)', fontSize: '0.75rem', marginTop: '4px' }}>•</span>
+                <span style={{ flex: 1 }}>{parseInlineFormatting(cleanLine)}</span>
+              </div>
+            );
+          }
+          
+          return <p key={index} style={{ margin: '4px 0' }}>{parseInlineFormatting(cleanLine)}</p>;
+        })}
+      </div>
+    );
+  };
+
   const saveSchedule = async () => {
     const data = await runRoleAction('/scheduled-messages', { channelId: scheduleChannelId, message: scheduleMessage, timeIST: scheduleTimeIST });
     if (data?.schedules) { setScheduledMessages(data.schedules); setScheduleMessage(''); }
@@ -1714,7 +1797,7 @@ const App: React.FC = () => {
                 <div className="form-group"><label>Old role to replace</label><select className="form-select" value={replaceFromRoleId} onChange={e => setReplaceFromRoleId(e.target.value)}><option value="">-- Select old role --</option>{roles.map(role => <option key={role.id} value={role.id}>{role.name} ({role.memberCount} members)</option>)}</select></div>
                 <div className="form-group"><label>New replacement role</label><select className="form-select" value={replaceRoleId} onChange={e => setReplaceRoleId(e.target.value)}><option value="">-- Select new role --</option>{roles.filter(role => role.id !== replaceFromRoleId).map(role => <option key={role.id} value={role.id}>{role.name}</option>)}</select></div>
                 <button className="btn" disabled={roleLoading || !replaceFromRoleId || !replaceRoleId} onClick={() => { if (window.confirm('Replace this role for every member?')) runRoleAction('/roles/replace', { fromRoleId: replaceFromRoleId, toRoleId: replaceRoleId }); }}>Replace role for all members</button>
-                <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--panel-border)' }}><h3 style={{ marginBottom: '6px' }}>AI cleanup advice</h3><p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '10px' }}>Suggestions only—AI never edits roles automatically.</p><button className="btn" disabled={roleLoading} onClick={getAIRoleAdvice}>Ask AI to review roles</button>{roleAdvice && <pre className="logs-box" style={{ whiteSpace: 'pre-wrap', marginTop: '12px', maxHeight: '260px' }}>{roleAdvice}</pre>}</div>
+                <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--panel-border)' }}><h3 style={{ marginBottom: '6px' }}>AI cleanup advice</h3><p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '10px' }}>Suggestions only—AI never edits roles automatically.</p><button className="btn" disabled={roleLoading} onClick={getAIRoleAdvice}>Ask AI to review roles</button>{roleAdvice && renderFormattedAdvice(roleAdvice)}</div>
               </div>
             </div>
           )}
