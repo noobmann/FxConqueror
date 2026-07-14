@@ -216,7 +216,7 @@ const App: React.FC = () => {
   const [levelUpMessage, setLevelUpMessage] = useState<string>('');
   const [roleRewards, setRoleRewards] = useState<LevelReward[]>([]);
   const [selectedUserWarnings, setSelectedUserWarnings] = useState<{ username: string; id: string; list: WarningRecord[] } | null>(null);
-  const [activeModModal, setActiveModModal] = useState<{ userId: string; username: string; action: 'warn' | 'kick' | 'ban' | 'unban' } | null>(null);
+  const [activeModModal, setActiveModModal] = useState<{ userId: string; username: string; action: 'warn' | 'kick' | 'ban' | 'unban' | 'unwarn'; warnId?: string } | null>(null);
   const [modReason, setModReason] = useState<string>('');
   const [modNoticeChannelId, setModNoticeChannelId] = useState<string>('');
   const [modAnnounceMessage, setModAnnounceMessage] = useState<string>('');
@@ -612,23 +612,30 @@ const App: React.FC = () => {
 
   const submitModerationAction = async () => {
     if (!activeModModal || !modReason.trim()) return;
-    const { userId, username, action } = activeModModal;
+    const { userId, username, action, warnId } = activeModModal;
+    const endpoint = action === 'unwarn' ? 'deletewarn' : action;
     
     try {
-      const res = await fetchAuth(`${API_BASE}/moderation/${action}`, {
+      const bodyPayload: any = {
+        userId,
+        reason: modReason,
+        noticeChannelId: modNoticeChannelId,
+        announcementMessage: modAnnounceMessage
+      };
+      if (action === 'unwarn' && warnId) {
+        bodyPayload.warnId = warnId;
+      }
+
+      const res = await fetchAuth(`${API_BASE}/moderation/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          userId, 
-          reason: modReason,
-          noticeChannelId: modNoticeChannelId,
-          announcementMessage: modAnnounceMessage
-        })
+        body: JSON.stringify(bodyPayload)
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      setSaveStatus({ type: 'success', msg: `Successfully ${action}ed @${username}!` });
+      const msgAction = action === 'unwarn' ? 'removed warning for' : `${action}ed`;
+      setSaveStatus({ type: 'success', msg: `Successfully ${msgAction} @${username}!` });
       setTimeout(() => setSaveStatus({ type: null, msg: null }), 3000);
       setActiveModModal(null);
       setModReason('');
@@ -658,23 +665,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleRemoveWarning = async (userId: string, warnId: string) => {
-    try {
-      const res = await fetchAuth(`${API_BASE}/moderation/deletewarn`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, warnId })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
 
-      setSaveStatus({ type: 'success', msg: 'Warning removed!' });
-      setTimeout(() => setSaveStatus({ type: null, msg: null }), 3000);
-      pollData();
-    } catch (err: any) {
-      alert(`Unwarn failed: ${err.message}`);
-    }
-  };
 
   // Tab 5: Auto-Moderation
   const handleAddBadWord = (e: React.FormEvent) => {
@@ -1880,7 +1871,7 @@ const App: React.FC = () => {
                                       <div style={{ fontWeight: 500 }}>{w.reason}</div>
                                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{w.timestamp}</div>
                                     </div>
-                                    <button className="btn btn-secondary" style={{ padding: '2px 6px', fontSize: '0.7rem', border: '1px solid rgba(239,68,68,0.2)', color: 'var(--accent-red)' }} onClick={() => handleRemoveWarning(uid, w.id)}>Remove</button>
+                                    <button className="btn btn-secondary" style={{ padding: '2px 6px', fontSize: '0.7rem', border: '1px solid rgba(239,68,68,0.2)', color: 'var(--accent-red)' }} onClick={() => setActiveModModal({ userId: uid, username, action: 'unwarn', warnId: w.id })}>Remove</button>
                                   </div>
                                 ))}
                               </div>
@@ -2004,11 +1995,16 @@ const App: React.FC = () => {
                               <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)' }}>{m.xp}</td>
                               <td>
                                 <span 
-                                  className={`pill ${m.warnings.length > 0 ? 'red' : 'green'}`}
-                                  style={{ cursor: 'pointer' }}
+                                  className={`pill ${m.warnings.length > 0 ? 'red' : 'gray'}`}
+                                  style={{ 
+                                    cursor: 'pointer',
+                                    background: m.warnings.length > 0 ? undefined : 'rgba(255,255,255,0.05)',
+                                    border: m.warnings.length > 0 ? undefined : '1px solid var(--panel-border)',
+                                    color: m.warnings.length > 0 ? undefined : 'var(--text-muted)'
+                                  }}
                                   onClick={() => setSelectedUserWarnings({ username: m.username, id: m.id, list: m.warnings })}
                                 >
-                                  ⚠️ {m.warnings.length} Warns
+                                  {m.warnings.length > 0 ? '⚠️ ' : ''}{m.warnings.length} Warns
                                 </span>
                               </td>
                               <td style={{ textAlign: 'right' }}>

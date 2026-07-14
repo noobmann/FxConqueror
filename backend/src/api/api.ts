@@ -653,8 +653,8 @@ router.post('/moderation/clearwarns', (req: Request, res: Response) => {
   res.json({ message: 'Warnings cleared successfully' });
 });
 
-router.post('/moderation/deletewarn', (req: Request, res: Response) => {
-  const { userId, warnId } = req.body;
+router.post('/moderation/deletewarn', async (req: Request, res: Response) => {
+  const { userId, warnId, noticeChannelId, announcementMessage } = req.body;
   if (!userId || !warnId) {
     return res.status(400).json({ error: 'Missing userId or warnId' });
   }
@@ -688,6 +688,21 @@ router.post('/moderation/deletewarn', (req: Request, res: Response) => {
   saveDb(db);
 
   addLog(`Removed warning ${warnId} for user (${userId}) via Web Dashboard`, 'info');
+
+  if (noticeChannelId && announcementMessage) {
+    try {
+      const channel = await client.channels.fetch(noticeChannelId);
+      if (channel && channel.isTextBased()) {
+        const parsedMsg = announcementMessage.replace(/{user}/g, `<@${userId}>`);
+        await (channel as TextChannel).send(parsedMsg);
+      }
+    } catch (err: any) {
+      addLog(`Failed to send custom unwarn notice: ${err.message}`, 'warn');
+    }
+  } else {
+    await sendModerationNotice(userId, 'warning removed', `Warning ID: ${warnId}`);
+  }
+
   res.json({ message: 'Warning removed successfully', warnings: filtered });
 });
 
