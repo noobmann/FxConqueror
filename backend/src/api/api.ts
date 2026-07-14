@@ -150,6 +150,20 @@ function protectedRoleError(role: any): string | null {
   return null;
 }
 
+function hasValidAIPasscode(req: Request) {
+  const required = process.env.AI_ORGANIZER_PASSCODE;
+  return !required || req.body?.aiPasscode === required;
+}
+
+async function sendModerationNotice(userId: string, action: string, reason?: string) {
+  const channelId = getDb().moderationNoticeChannelId;
+  if (!channelId) return;
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (channel && channel.isTextBased()) await (channel as TextChannel).send(`⚠️ <@${userId}> was **${action}**. Reason: ${reason || 'No reason provided'}`);
+  } catch (err: any) { addLog(`Could not send moderation notice: ${err.message}`, 'warn'); }
+}
+
 // ----------------------------------------------------
 // AUTHENTICATION & PUBLIC STATUS ROUTE
 // ----------------------------------------------------
@@ -352,13 +366,14 @@ router.post('/scheduled-messages/delete', (req: Request, res: Response) => {
 });
 
 router.post('/settings/moderation', async (req: Request, res: Response) => {
-  const { photoOnlyChannels, slowmodeChannels } = req.body;
+  const { photoOnlyChannels, slowmodeChannels, moderationNoticeChannelId } = req.body;
   if (!Array.isArray(photoOnlyChannels) || typeof slowmodeChannels !== 'object') {
     return res.status(400).json({ error: 'Invalid moderation configuration data' });
   }
 
   const db = getDb();
   db.photoOnlyChannels = photoOnlyChannels;
+  if (typeof moderationNoticeChannelId === 'string') db.moderationNoticeChannelId = moderationNoticeChannelId;
 
   const oldSlowmodes = db.slowmodeChannels || {};
   db.slowmodeChannels = slowmodeChannels;
@@ -375,13 +390,13 @@ router.post('/settings/moderation', async (req: Request, res: Response) => {
 });
 
 router.post('/settings/welcome', (req: Request, res: Response) => {
-  const { enabled, channelId, message, autoRoleId } = req.body;
+  const { enabled, channelId, message, autoRoleId, embedStyle } = req.body;
   if (typeof enabled !== 'boolean' || typeof message !== 'string') {
     return res.status(400).json({ error: 'Invalid welcome settings data' });
   }
 
   const db = getDb();
-  db.welcomeSettings = { enabled, channelId, message, autoRoleId };
+  db.welcomeSettings = { enabled, channelId, message, autoRoleId, embedStyle: embedStyle !== false };
   saveDb(db);
 
   res.json({ message: 'Welcome settings saved successfully', settings: db });
@@ -551,7 +566,7 @@ router.post('/moderation/purge', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/moderation/warn', (req: Request, res: Response) => {
+router.post('/moderation/warn', async (req: Request, res: Response) => {
   const { userId, reason } = req.body;
   if (!userId || !reason) {
     return res.status(400).json({ error: 'Missing userId or reason' });
@@ -570,6 +585,7 @@ router.post('/moderation/warn', (req: Request, res: Response) => {
   saveDb(db);
 
   addLog(`Warned user (${userId}) via Web Dashboard. Reason: ${reason}`, 'warn');
+  await sendModerationNotice(userId, 'warned', reason);
   res.json({ message: 'User warned successfully', warnings: list });
 });
 
@@ -606,6 +622,7 @@ router.post('/moderation/kick', async (req: Request, res: Response) => {
 
     await member.kick(reason || 'Kicked via Web Dashboard');
     addLog(`Kicked user ${member.user.tag} via Web Dashboard. Reason: ${reason}`, 'warn');
+    await sendModerationNotice(userId, 'kicked', reason);
     res.json({ message: `Successfully kicked ${member.user.username}` });
   } catch (err: any) {
     addLog(`Failed to kick member: ${err.message}`, 'error');
@@ -629,6 +646,7 @@ router.post('/moderation/ban', async (req: Request, res: Response) => {
     await guild.members.ban(userId, { reason: reason || 'Banned via Web Dashboard' });
     const tag = member ? member.user.tag : userId;
     addLog(`Banned user ${tag} via Web Dashboard. Reason: ${reason}`, 'warn');
+    await sendModerationNotice(userId, 'banned', reason);
     res.json({ message: `Successfully banned member` });
   } catch (err: any) {
     addLog(`Failed to ban member: ${err.message}`, 'error');
@@ -642,6 +660,7 @@ router.post('/moderation/ban', async (req: Request, res: Response) => {
 
 // AI suggest sorting of existing channels & recommend missing ones
 router.post('/ai/suggest-sorting', async (req: Request, res: Response) => {
+  if (!hasValidAIPasscode(req)) return res.status(403).json({ error: 'AI organizer passcode is incorrect.' });
   const guild = getGuild((req as any).guildId);
   if (!guild) {
     return res.status(404).json({ error: 'Guild connection not active' });
@@ -787,6 +806,7 @@ router.post('/ai/suggest-sorting', async (req: Request, res: Response) => {
 
 // Apply sorting / move channels on Discord Guild, clean leftovers, duplicates, and create suggested new channels
 router.post('/ai/apply-sorting', async (req: Request, res: Response) => {
+  if (!hasValidAIPasscode(req)) return res.status(403).json({ error: 'AI organizer passcode is incorrect.' });
   const { suggestion, cleanLeftovers, removeDuplicates, createMissing } = req.body;
 
   const guild = getGuild((req as any).guildId);

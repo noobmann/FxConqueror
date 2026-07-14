@@ -92,6 +92,15 @@ async function sendScheduledMessages() {
   if (changed) saveDb(db);
 }
 
+async function postModerationNotice(userId: string, action: string, reason?: string) {
+  const channelId = getDb().moderationNoticeChannelId;
+  if (!channelId) return;
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (channel && channel.isTextBased()) await (channel as TextChannel).send(`⚠️ <@${userId}> was **${action}**. Reason: ${reason || 'No reason provided'}`);
+  } catch (err: any) { addLog(`Could not post moderation notice: ${err.message}`, 'warn'); }
+}
+
 // Event: Bot Ready
 client.once('ready', () => {
   addLog(`Bot is logged in as ${client.user?.tag}!`, 'info');
@@ -141,7 +150,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.commandName === 'warn') {
       if (!staff()) return void await deny();
       const user = interaction.options.getUser('user', true); const reason = interaction.options.getString('reason', true);
-      addWarningToDb(user.id, reason); return void interaction.reply(`${user} has been warned: ${reason}`);
+      addWarningToDb(user.id, reason); await postModerationNotice(user.id, 'warned', reason); return void interaction.reply(`${user} has been warned: ${reason}`);
     }
     if (interaction.commandName === 'purge') {
       if (!staff()) return void await deny();
@@ -154,6 +163,7 @@ client.on('interactionCreate', async (interaction) => {
       const user = interaction.options.getUser('user', true); const member = await interaction.guild?.members.fetch(user.id); const reason = interaction.options.getString('reason') || 'Moderation action';
       if (!member || !member.moderatable) return void await interaction.reply({ content: 'I cannot moderate that member.', ephemeral: true });
       if (interaction.commandName === 'kick') await member.kick(reason); else await member.ban({ reason });
+      await postModerationNotice(user.id, interaction.commandName === 'kick' ? 'kicked' : 'banned', reason);
       return void interaction.reply(`${interaction.commandName === 'kick' ? 'Kicked' : 'Banned'} ${user.tag}.`);
     }
   } catch (err: any) {
@@ -205,7 +215,18 @@ client.on('guildMemberAdd', async (member) => {
       const channel = await client.channels.fetch(db.welcomeSettings.channelId);
       if (channel && channel.isTextBased()) {
         const welcomeText = db.welcomeSettings.message.replace(/{user}/g, `<@${member.id}>`);
-        await (channel as TextChannel).send(welcomeText);
+        if (db.welcomeSettings.embedStyle !== false) {
+          const memberNumber = member.guild.memberCount;
+          const embed = new EmbedBuilder()
+            .setColor(0x1687ff)
+            .setAuthor({ name: `Member #${memberNumber}` })
+            .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
+            .setDescription(`${welcomeText}\n\n**Welcome ${member.user.username}**\nWelcome to **${member.guild.name}**`)
+            .setFooter({ text: `Member #${memberNumber}` });
+          await (channel as TextChannel).send({ embeds: [embed] });
+        } else {
+          await (channel as TextChannel).send(welcomeText);
+        }
         addLog(`Sent welcome message for ${member.user.username}`, 'info');
       }
     } catch (err: any) {

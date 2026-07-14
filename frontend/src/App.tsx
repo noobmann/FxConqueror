@@ -6,6 +6,7 @@ interface WelcomeSettings {
   channelId: string;
   message: string;
   autoRoleId: string;
+  embedStyle?: boolean;
 }
 
 interface LeaveSettings {
@@ -67,6 +68,7 @@ interface DatabaseSchema {
   reactionRoles: ReactionRole[];
   triggers: Trigger[];
   auditLogChannelId: string;
+  moderationNoticeChannelId: string;
   levelingSettings: LevelingSettings;
   autoMod: AutoModSettings;
   verificationSettings?: VerificationSettings;
@@ -164,12 +166,15 @@ const App: React.FC = () => {
   const [channels, setChannels] = useState<DiscordChannel[]>([]);
   const [roles, setRoles] = useState<DiscordRole[]>([]);
   const [members, setMembers] = useState<GuildMember[]>([]);
+  const [memberSearch, setMemberSearch] = useState<string>('');
+  const [memberPage, setMemberPage] = useState<number>(1);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   // Tab 1: Audit Log Target State
   const [auditLogChannelId, setAuditLogChannelId] = useState<string>('');
+  const [moderationNoticeChannelId, setModerationNoticeChannelId] = useState<string>('');
 
   // Tab 2: Channels Rule States
   const [photoOnlyChannels, setPhotoOnlyChannels] = useState<string[]>([]);
@@ -180,7 +185,8 @@ const App: React.FC = () => {
     enabled: false,
     channelId: '',
     message: '',
-    autoRoleId: ''
+    autoRoleId: '',
+    embedStyle: true
   });
   const [leaveSettings, setLeaveSettings] = useState<LeaveSettings>({
     enabled: false,
@@ -237,6 +243,7 @@ const App: React.FC = () => {
   const [geminiApiKey, setGeminiApiKey] = useState<string>(() => {
     return localStorage.getItem('gemini_api_key') || '';
   });
+  const [aiPasscode, setAiPasscode] = useState<string>('');
   const [showGeminiKey, setShowGeminiKey] = useState<boolean>(false);
 
   // Tab 8: Broadcaster States
@@ -360,6 +367,7 @@ const App: React.FC = () => {
       setReactionRoles(statusData.settings.reactionRoles || []);
       setTriggers(statusData.settings.triggers || []);
       setAuditLogChannelId(statusData.settings.auditLogChannelId || '');
+      setModerationNoticeChannelId(statusData.settings.moderationNoticeChannelId || '');
       
       setLevelingEnabled(statusData.settings.levelingSettings?.enabled || false);
       setLevelUpMessage(statusData.settings.levelingSettings?.levelUpMessage || 'GG {user}, you leveled up to level {level}!');
@@ -460,7 +468,7 @@ const App: React.FC = () => {
 
   // Tab 2: Channels Rule & Direct Purge
   const saveModerationSettings = () => {
-    handleSave(`${API_BASE}/settings/moderation`, { photoOnlyChannels, slowmodeChannels }, 'Moderation settings synced successfully!');
+    handleSave(`${API_BASE}/settings/moderation`, { photoOnlyChannels, slowmodeChannels, moderationNoticeChannelId }, 'Moderation settings synced successfully!');
   };
 
   const handlePhotoOnlyToggle = (channelId: string) => {
@@ -821,7 +829,7 @@ const App: React.FC = () => {
       const res = await fetchAuth(`${API_BASE}/ai/suggest-sorting`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ geminiApiKey, autoEmoji: aiAutoEmoji })
+        body: JSON.stringify({ geminiApiKey, autoEmoji: aiAutoEmoji, aiPasscode })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to analyze sorting');
@@ -852,6 +860,7 @@ const App: React.FC = () => {
           cleanLeftovers,
           removeDuplicates,
           createMissing
+          , aiPasscode
         })
       });
       const data = await res.json();
@@ -1024,6 +1033,11 @@ const App: React.FC = () => {
     const rem = sec % 60;
     return rem === 0 ? `${min}m` : `${min}m ${rem}s`;
   };
+
+  const membersPerPage = 10;
+  const filteredMembers = members.filter(member => `${member.username} ${member.tag}`.toLowerCase().includes(memberSearch.toLowerCase()));
+  const memberPageCount = Math.max(1, Math.ceil(filteredMembers.length / membersPerPage));
+  const visibleMembers = filteredMembers.slice((Math.min(memberPage, memberPageCount) - 1) * membersPerPage, Math.min(memberPage, memberPageCount) * membersPerPage);
 
   // AUTHENTICATION LOGIN PORTAL RENDER
   if (!token) {
@@ -1325,6 +1339,7 @@ const App: React.FC = () => {
                     <h3>Configured Channels</h3>
                     <p>{photoOnlyChannels.length} Photo / {Object.keys(slowmodeChannels).filter(id => slowmodeChannels[id] > 0).length} Slow</p>
                   </div>
+                  <div style={{ marginTop: '10px' }}><input type="password" className="form-input" style={{ padding: '8px 12px', fontSize: '0.875rem' }} placeholder="AI organizer passcode (required if configured)" value={aiPasscode} onChange={e => setAiPasscode(e.target.value)} /></div>
                 </div>
               </div>
 
@@ -1384,6 +1399,8 @@ const App: React.FC = () => {
                 </div>
                 <button className="btn" onClick={saveModerationSettings}>Save Moderation Settings</button>
               </div>
+
+              <div className="form-group" style={{ maxWidth: '480px' }}><label>Public moderation notice channel (optional)</label><select className="form-select" value={moderationNoticeChannelId} onChange={e => setModerationNoticeChannelId(e.target.value)}><option value="">-- Do not post public notices --</option>{channels.filter(ch => ch.type !== 2).map(ch => <option key={ch.id} value={ch.id}>#{ch.name}</option>)}</select><span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Warn, kick and ban actions will post the user and reason here.</span></div>
 
               <div className="table-container">
                 <table className="custom-table">
@@ -1483,6 +1500,7 @@ const App: React.FC = () => {
                     <textarea className="form-textarea" disabled={!welcomeSettings.enabled} value={welcomeSettings.message} onChange={(e) => setWelcomeSettings({ ...welcomeSettings, message: e.target.value })} placeholder="Welcome to the server, {user}!" />
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Use <b>{`{user}`}</b> to mention the member.</span>
                   </div>
+                  <div className="form-group"><div className="toggle-wrapper"><div className="toggle-label-desc"><h4>Avatar welcome card</h4><p>Send a rich welcome embed with the member avatar and member number.</p></div><label className="switch"><input type="checkbox" checked={welcomeSettings.embedStyle !== false} onChange={e => setWelcomeSettings({ ...welcomeSettings, embedStyle: e.target.checked })} /><span className="slider"></span></label></div></div>
 
                   <div className="form-group">
                     <label>Automatic Role on Join (Auto-role)</label>
@@ -1686,6 +1704,7 @@ const App: React.FC = () => {
               <div className="glass-panel">
                 <h2 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--panel-border)', paddingBottom: '8px' }}>👥 Server Members & XP Leaderboard</h2>
                 
+                <input className="form-input" style={{ marginBottom: '12px' }} placeholder="Search member by name..." value={memberSearch} onChange={e => { setMemberSearch(e.target.value); setMemberPage(1); }} />
                 <div className="table-container">
                   <table className="custom-table">
                     <thead>
@@ -1699,16 +1718,17 @@ const App: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {members.length === 0 ? (
+                      {visibleMembers.length === 0 ? (
                         <tr>
                           <td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>No members cached.</td>
                         </tr>
                       ) : (
-                        members.map((m, idx) => {
+                        visibleMembers.map((m, idx) => {
+                          const absoluteIndex = (Math.min(memberPage, memberPageCount) - 1) * membersPerPage + idx;
                           const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '#' + (idx + 1);
                           return (
                             <tr key={m.id}>
-                              <td style={{ fontWeight: 700, fontSize: '1rem', color: idx < 3 ? 'inherit' : 'var(--text-muted)' }}>{medal}</td>
+                              <td style={{ fontWeight: 700, fontSize: '1rem', color: absoluteIndex < 3 ? 'inherit' : 'var(--text-muted)' }}>{medal}</td>
                               <td>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                   <img src={m.avatar || 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%232c3e50%22/><text y=%22.65em%22 x=%2250%22 font-size=%2250%22 text-anchor=%22middle%22 fill=%22white%22>👤</text></svg>'} style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover' }} alt="avatar" />
@@ -1743,6 +1763,7 @@ const App: React.FC = () => {
                     </tbody>
                   </table>
                 </div>
+                {filteredMembers.length > membersPerPage && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginTop: '14px' }}><button className="btn btn-secondary" disabled={memberPage <= 1} onClick={() => setMemberPage(page => page - 1)}>Previous</button><span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Page {Math.min(memberPage, memberPageCount)} of {memberPageCount}</span><button className="btn btn-secondary" disabled={memberPage >= memberPageCount} onClick={() => setMemberPage(page => page + 1)}>Next</button></div>}
               </div>
             </div>
           )}

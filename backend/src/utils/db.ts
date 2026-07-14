@@ -7,6 +7,7 @@ export interface WelcomeSettings {
   channelId: string;
   message: string;
   autoRoleId: string;
+  embedStyle?: boolean;
 }
 
 export interface LeaveSettings {
@@ -84,6 +85,7 @@ export interface DatabaseSchema {
   reactionRoles: ReactionRole[];
   triggers: Trigger[];
   auditLogChannelId: string;
+  moderationNoticeChannelId: string;
   levelingSettings: LevelingSettings;
   xpData: Record<string, XpRecord>;
   autoMod: AutoModSettings;
@@ -103,7 +105,8 @@ const defaultDb: DatabaseSchema = {
     enabled: false,
     channelId: '',
     message: 'Welcome to the server, {user}!',
-    autoRoleId: ''
+    autoRoleId: '',
+    embedStyle: true
   },
   leaveSettings: {
     enabled: false,
@@ -114,6 +117,7 @@ const defaultDb: DatabaseSchema = {
   scheduledMessages: [],
   triggers: [],
   auditLogChannelId: '',
+  moderationNoticeChannelId: '',
   levelingSettings: {
     enabled: false,
     roleRewards: [],
