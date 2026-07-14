@@ -1372,6 +1372,8 @@ const App: React.FC = () => {
 
                     if (activeModModal.action === 'unwarn') {
                       setModAnnounceMessage(`✅ {user}'s warning has been removed. Reason: ${modReason || '[Reason]'}`);
+                    } else if (activeModModal.action === 'ban') {
+                      setModAnnounceMessage(`⚠️ {user} has been **banned** (is not allowed to join again) for: ${modReason || '[Reason]'}`);
                     } else {
                       setModAnnounceMessage(`⚠️ {user} has been **${actionWord}** for: ${modReason || '[Reason]'}`);
                     }
