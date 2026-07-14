@@ -1422,7 +1422,6 @@ const App: React.FC = () => {
                     <h3>Configured Channels</h3>
                     <p>{photoOnlyChannels.length} Photo / {Object.keys(slowmodeChannels).filter(id => slowmodeChannels[id] > 0).length} Slow</p>
                   </div>
-                  <div style={{ marginTop: '10px' }}><input type="password" className="form-input" style={{ padding: '8px 12px', fontSize: '0.875rem' }} placeholder="AI organizer passcode (required if configured)" value={aiPasscode} onChange={e => setAiPasscode(e.target.value)} /></div>
                 </div>
               </div>
 
@@ -2130,6 +2129,27 @@ const App: React.FC = () => {
                       </button>
                     )}
                   </div>
+                </div>
+
+                {/* AI Passcode input block */}
+                <div style={{
+                  background: 'rgba(0,0,0,0.02)', border: '1px solid var(--panel-border)',
+                  padding: '16px 20px', borderRadius: '8px', maxWidth: '600px', marginBottom: '1.5rem'
+                }}>
+                  <h4 style={{ margin: '0 0 5px 0', fontSize: '0.925rem' }}>
+                    🔒 AI Organizer Security Passcode
+                  </h4>
+                  <p style={{ margin: '0 0 12px 0', fontSize: '0.785rem', color: 'var(--text-secondary)' }}>
+                    If a passcode gate is configured on the backend, please enter the passcode below to verify your authorization.
+                  </p>
+                  <input 
+                    type="password" 
+                    className="form-input" 
+                    style={{ padding: '8px 12px', fontSize: '0.875rem' }} 
+                    placeholder="Enter AI organizer passcode..." 
+                    value={aiPasscode} 
+                    onChange={e => setAiPasscode(e.target.value)} 
+                  />
                 </div>
               </div>
 
