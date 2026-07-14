@@ -77,6 +77,15 @@ export interface Credentials {
   geminiApiKey?: string;
 }
 
+export interface ModerationLog {
+  id: string;
+  userId: string;
+  userTag: string;
+  action: 'warn' | 'kick' | 'ban' | 'mute';
+  reason: string;
+  timestamp: string;
+}
+
 export interface DatabaseSchema {
   photoOnlyChannels: string[];
   slowmodeChannels: Record<string, number>;
@@ -93,6 +102,7 @@ export interface DatabaseSchema {
   credentials?: Credentials;
   verificationSettings?: VerificationSettings;
   scheduledMessages: ScheduledMessage[];
+  moderationLogs: ModerationLog[];
 }
 
 const DB_PATH = path.join(__dirname, '../../database.json');
@@ -142,7 +152,8 @@ const defaultDb: DatabaseSchema = {
     embedTitle: '✅ Server Verification',
     embedDescription: 'Click the button below to verify yourself and gain access to the server!',
     embedColor: '#00d26a'
-  }
+  },
+  moderationLogs: []
 };
 
 let dbMemory: DatabaseSchema = defaultDb;

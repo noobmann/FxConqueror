@@ -60,6 +60,15 @@ interface VerificationSettings {
   embedColor: string;
 }
 
+interface ModerationLog {
+  id: string;
+  userId: string;
+  userTag: string;
+  action: 'warn' | 'kick' | 'ban' | 'mute';
+  reason: string;
+  timestamp: string;
+}
+
 interface DatabaseSchema {
   photoOnlyChannels: string[];
   slowmodeChannels: Record<string, number>;
@@ -72,6 +81,7 @@ interface DatabaseSchema {
   levelingSettings: LevelingSettings;
   autoMod: AutoModSettings;
   verificationSettings?: VerificationSettings;
+  moderationLogs?: ModerationLog[];
 }
 
 interface BotStatus {
@@ -114,6 +124,7 @@ interface GuildMember {
   xp: number;
   warnings: WarningRecord[];
   joinedAt: string;
+  joinedAtTimestamp: number;
   isAdmin: boolean;
 }
 
@@ -168,6 +179,7 @@ const App: React.FC = () => {
   const [members, setMembers] = useState<GuildMember[]>([]);
   const [memberSearch, setMemberSearch] = useState<string>('');
   const [memberPage, setMemberPage] = useState<number>(1);
+  const [memberSort, setMemberSort] = useState<'level' | 'alphabetical' | 'newest' | 'oldest'>('level');
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -203,6 +215,10 @@ const App: React.FC = () => {
   const [levelUpMessage, setLevelUpMessage] = useState<string>('');
   const [roleRewards, setRoleRewards] = useState<LevelReward[]>([]);
   const [selectedUserWarnings, setSelectedUserWarnings] = useState<{ username: string; id: string; list: WarningRecord[] } | null>(null);
+  const [activeModModal, setActiveModModal] = useState<{ userId: string; username: string; action: 'warn' | 'kick' | 'ban' } | null>(null);
+  const [modReason, setModReason] = useState<string>('');
+  const [modNoticeChannelId, setModNoticeChannelId] = useState<string>('');
+  const [modAnnounceMessage, setModAnnounceMessage] = useState<string>('');
 
   // Tab 5: AutoMod States
   const [badWordsEnabled, setBadWordsEnabled] = useState<boolean>(false);
@@ -568,68 +584,57 @@ const App: React.FC = () => {
   };
 
 
-  const handleWebWarn = async (userId: string, username: string) => {
-    const reason = window.prompt(`Enter warning reason for @${username}:`, 'Rules Violation');
-    if (!reason) return;
-
-    try {
-      const res = await fetchAuth(`${API_BASE}/moderation/warn`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, reason })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      setSaveStatus({ type: 'success', msg: `Warned @${username}` });
-      setTimeout(() => setSaveStatus({ type: null, msg: null }), 3000);
-      pollData();
-    } catch (err: any) {
-      alert(`Warn failed: ${err.message}`);
-    }
+  const handleWebWarn = (userId: string, username: string) => {
+    setActiveModModal({ userId, username, action: 'warn' });
   };
 
-  const handleWebKick = async (userId: string, username: string) => {
-    const confirm = window.confirm('Are you sure you want to KICK @' + username + '?');
-    if (!confirm) return;
-    const reason = window.prompt('Reason for kick:', 'Kicked via Dashboard');
-
+  const handleLevelEdit = async (userId: string, username: string, currentLevel: number) => {
+    const value = window.prompt(`Set level for @${username} (0-1000):`, String(currentLevel));
+    if (value === null) return;
+    const level = Number(value);
+    if (!Number.isInteger(level) || level < 0 || level > 1000) return alert('Enter a whole number from 0 to 1000.');
     try {
-      const res = await fetchAuth(`${API_BASE}/moderation/kick`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, reason })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      setSaveStatus({ type: 'success', msg: `Kicked @${username}!` });
-      setTimeout(() => setSaveStatus({ type: null, msg: null }), 3000);
-      pollData();
-    } catch (err: any) {
-      alert(`Kick failed: ${err.message}`);
-    }
+      const res = await fetchAuth(`${API_BASE}/members/level`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, level }) });
+      const data = await res.json(); if (!res.ok) throw new Error(data.error);
+      setSaveStatus({ type: 'success', msg: data.message }); setTimeout(() => setSaveStatus({ type: null, msg: null }), 3000); pollData();
+    } catch (err: any) { alert(`Level update failed: ${err.message}`); }
   };
 
-  const handleWebBan = async (userId: string, username: string) => {
-    const confirm = window.confirm('🔥 DANGER: Are you sure you want to BAN @' + username + '?');
-    if (!confirm) return;
-    const reason = window.prompt('Reason for ban:', 'Banned via Dashboard');
+  const handleWebKick = (userId: string, username: string) => {
+    setActiveModModal({ userId, username, action: 'kick' });
+  };
 
+  const handleWebBan = (userId: string, username: string) => {
+    setActiveModModal({ userId, username, action: 'ban' });
+  };
+
+  const submitModerationAction = async () => {
+    if (!activeModModal || !modReason.trim()) return;
+    const { userId, username, action } = activeModModal;
+    
     try {
-      const res = await fetchAuth(`${API_BASE}/moderation/ban`, {
+      const res = await fetchAuth(`${API_BASE}/moderation/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, reason })
+        body: JSON.stringify({ 
+          userId, 
+          reason: modReason,
+          noticeChannelId: modNoticeChannelId,
+          announcementMessage: modAnnounceMessage
+        })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      setSaveStatus({ type: 'success', msg: `Banned @${username}!` });
+      setSaveStatus({ type: 'success', msg: `Successfully ${action}ed @${username}!` });
       setTimeout(() => setSaveStatus({ type: null, msg: null }), 3000);
+      setActiveModModal(null);
+      setModReason('');
+      setModNoticeChannelId('');
+      setModAnnounceMessage('');
       pollData();
     } catch (err: any) {
-      alert(`Ban failed: ${err.message}`);
+      alert(`Action failed: ${err.message}`);
     }
   };
 
@@ -1035,7 +1040,12 @@ const App: React.FC = () => {
   };
 
   const membersPerPage = 10;
-  const filteredMembers = members.filter(member => `${member.username} ${member.tag}`.toLowerCase().includes(memberSearch.toLowerCase()));
+  const filteredMembers = members.filter(member => `${member.username} ${member.tag}`.toLowerCase().includes(memberSearch.toLowerCase())).sort((a, b) => {
+    if (memberSort === 'alphabetical') return a.username.localeCompare(b.username);
+    if (memberSort === 'newest') return b.joinedAtTimestamp - a.joinedAtTimestamp;
+    if (memberSort === 'oldest') return a.joinedAtTimestamp - b.joinedAtTimestamp;
+    return b.level - a.level || b.xp - a.xp;
+  });
   const memberPageCount = Math.max(1, Math.ceil(filteredMembers.length / membersPerPage));
   const visibleMembers = filteredMembers.slice((Math.min(memberPage, memberPageCount) - 1) * membersPerPage, Math.min(memberPage, memberPageCount) * membersPerPage);
 
@@ -1311,6 +1321,79 @@ const App: React.FC = () => {
           </div>
         )}
 
+        {/* Moderation Action Modal */}
+        {activeModModal && (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+            background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', display: 'flex',
+            justifyContent: 'center', alignItems: 'center', zIndex: 1000
+          }}>
+            <div className="glass-panel" style={{ width: '480px', maxWidth: '90%' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--panel-border)', paddingBottom: '10px', marginBottom: '15px' }}>
+                <h3 style={{ margin: 0 }}>🛡️ Moderation Action: {activeModModal.action.toUpperCase()}</h3>
+                <button className="btn btn-secondary" style={{ padding: '2px 8px' }} onClick={() => { setActiveModModal(null); setModReason(''); setModAnnounceMessage(''); setModNoticeChannelId(''); }}>×</button>
+              </div>
+
+              <div style={{ marginBottom: '14px' }}>
+                <strong>Target User:</strong> @{activeModModal.username} <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>({activeModModal.userId})</span>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '15px' }}>
+                <label>Reason for {activeModModal.action}</label>
+                <input 
+                  className="form-input" 
+                  value={modReason} 
+                  onChange={e => setModReason(e.target.value)} 
+                  placeholder={`e.g. Rule violation / spamming`} 
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '15px' }}>
+                <label>Target Channel for Chat Announcement (Optional)</label>
+                <select className="form-select" value={modNoticeChannelId} onChange={e => {
+                  setModNoticeChannelId(e.target.value);
+                  if (e.target.value) {
+                    const actionWord = activeModModal.action === 'warn' ? 'warned' : activeModModal.action === 'kick' ? 'kicked' : 'banned';
+                    setModAnnounceMessage(`⚠️ {user} has been **${actionWord}** for: ${modReason || '[Reason]'}`);
+                  } else {
+                    setModAnnounceMessage('');
+                  }
+                }}>
+                  <option value="">-- Do not post announcement in chat --</option>
+                  {channels.filter(ch => ch.type !== 2).map(ch => (
+                    <option key={ch.id} value={ch.id}>#{ch.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {modNoticeChannelId && (
+                <div className="form-group" style={{ marginBottom: '20px' }}>
+                  <label>Custom Announcement Message</label>
+                  <textarea 
+                    className="form-textarea" 
+                    value={modAnnounceMessage} 
+                    onChange={e => setModAnnounceMessage(e.target.value)} 
+                    placeholder="Use {user} to mention/ping the member in chat."
+                  />
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Use <b>{`{user}`}</b> to format member reference.</span>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setActiveModModal(null); setModReason(''); setModAnnounceMessage(''); setModNoticeChannelId(''); }}>Cancel</button>
+                <button 
+                  className={`btn ${activeModModal.action === 'ban' ? 'btn-danger' : 'btn-primary'}`} 
+                  style={{ flex: 1, justifyContent: 'center' }} 
+                  disabled={!modReason.trim()} 
+                  onClick={submitModerationAction}
+                >
+                  Confirm {activeModModal.action.toUpperCase()}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Selected Tab Content */}
         <div>
           {/* TAB CONTENT: Overview */}
@@ -1461,6 +1544,38 @@ const App: React.FC = () => {
                     )}
                   </tbody>
                 </table>
+              </div>
+
+              <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--panel-border)' }}>
+                <h3 style={{ marginBottom: '10px' }}>🛡️ Moderation Action Logs</h3>
+                <div className="table-container">
+                  <table className="custom-table">
+                    <thead>
+                      <tr>
+                        <th>User</th>
+                        <th>Action</th>
+                        <th>Reason</th>
+                        <th>Timestamp</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {!botStatus?.settings?.moderationLogs || botStatus.settings.moderationLogs.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} style={{ textAlign: 'center', padding: '16px', color: 'var(--text-muted)' }}>No logs recorded.</td>
+                        </tr>
+                      ) : (
+                        [...botStatus.settings.moderationLogs].reverse().slice(0, 15).map(log => (
+                          <tr key={log.id}>
+                            <td style={{ fontWeight: 600 }}>{log.userTag} <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>({log.userId})</span></td>
+                            <td><span className={`pill ${log.action === 'ban' ? 'red' : log.action === 'kick' ? 'orange' : 'yellow'}`}>{log.action.toUpperCase()}</span></td>
+                            <td>{log.reason}</td>
+                            <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{log.timestamp}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
@@ -1704,7 +1819,7 @@ const App: React.FC = () => {
               <div className="glass-panel">
                 <h2 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--panel-border)', paddingBottom: '8px' }}>👥 Server Members & XP Leaderboard</h2>
                 
-                <input className="form-input" style={{ marginBottom: '12px' }} placeholder="Search member by name..." value={memberSearch} onChange={e => { setMemberSearch(e.target.value); setMemberPage(1); }} />
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}><input className="form-input" placeholder="Search member by name..." value={memberSearch} onChange={e => { setMemberSearch(e.target.value); setMemberPage(1); }} /><select className="form-select" style={{ maxWidth: '180px' }} value={memberSort} onChange={e => { setMemberSort(e.target.value as typeof memberSort); setMemberPage(1); }}><option value="level">Highest level</option><option value="alphabetical">A to Z</option><option value="newest">Newest joined</option><option value="oldest">Oldest joined</option></select></div>
                 <div className="table-container">
                   <table className="custom-table">
                     <thead>
@@ -1725,10 +1840,10 @@ const App: React.FC = () => {
                       ) : (
                         visibleMembers.map((m, idx) => {
                           const absoluteIndex = (Math.min(memberPage, memberPageCount) - 1) * membersPerPage + idx;
-                          const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '#' + (idx + 1);
+                          const rank = absoluteIndex + 1;
                           return (
                             <tr key={m.id}>
-                              <td style={{ fontWeight: 700, fontSize: '1rem', color: absoluteIndex < 3 ? 'inherit' : 'var(--text-muted)' }}>{medal}</td>
+                              <td style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-secondary)' }}>#{rank}</td>
                               <td>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                   <img src={m.avatar || 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%232c3e50%22/><text y=%22.65em%22 x=%2250%22 font-size=%2250%22 text-anchor=%22middle%22 fill=%22white%22>👤</text></svg>'} style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover' }} alt="avatar" />
@@ -1751,6 +1866,7 @@ const App: React.FC = () => {
                               </td>
                               <td style={{ textAlign: 'right' }}>
                                 <div style={{ display: 'inline-flex', gap: '5px' }}>
+                                  <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => handleLevelEdit(m.id, m.username, m.level)}>Edit Level</button>
                                   <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem', border: '1px solid rgba(255,179,0,0.3)', color: 'var(--accent-yellow)' }} onClick={() => handleWebWarn(m.id, m.username)}>⚠️ Warn</button>
                                   <button className="btn btn-secondary" disabled={m.isAdmin} style={{ padding: '4px 8px', fontSize: '0.75rem', border: '1px solid rgba(255,61,0,0.2)', color: 'var(--accent-red)' }} onClick={() => handleWebKick(m.id, m.username)}>Kick</button>
                                   <button className="btn btn-danger" disabled={m.isAdmin} style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => handleWebBan(m.id, m.username)}>Ban</button>

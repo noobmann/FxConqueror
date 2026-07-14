@@ -162,7 +162,32 @@ client.on('interactionCreate', async (interaction) => {
       if (!admin()) return void await deny();
       const user = interaction.options.getUser('user', true); const member = await interaction.guild?.members.fetch(user.id); const reason = interaction.options.getString('reason') || 'Moderation action';
       if (!member || !member.moderatable) return void await interaction.reply({ content: 'I cannot moderate that member.', ephemeral: true });
-      if (interaction.commandName === 'kick') await member.kick(reason); else await member.ban({ reason });
+      
+      const db = getDb();
+      if (!db.moderationLogs) db.moderationLogs = [];
+      
+      if (interaction.commandName === 'kick') {
+        await member.kick(reason);
+        db.moderationLogs.push({
+          id: Math.random().toString(36).substr(2, 9),
+          userId: user.id,
+          userTag: user.tag,
+          action: 'kick',
+          reason,
+          timestamp: new Date().toLocaleString()
+        });
+      } else {
+        await member.ban({ reason });
+        db.moderationLogs.push({
+          id: Math.random().toString(36).substr(2, 9),
+          userId: user.id,
+          userTag: user.tag,
+          action: 'ban',
+          reason,
+          timestamp: new Date().toLocaleString()
+        });
+      }
+      saveDb(db);
       await postModerationNotice(user.id, interaction.commandName === 'kick' ? 'kicked' : 'banned', reason);
       return void interaction.reply(`${interaction.commandName === 'kick' ? 'Kicked' : 'Banned'} ${user.tag}.`);
     }
@@ -290,7 +315,7 @@ client.on('messageDelete', async (message) => {
         )
         .setTimestamp();
       
-      await (logChannel as TextChannel).send({ embeds: [embed] });
+      await (logChannel as TextChannel).send({ embeds: [embed], flags: ['SuppressNotifications'] });
     }
   } catch (err: any) {
     console.error('Audit log delete error:', err.message);
@@ -320,7 +345,7 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
         )
         .setTimestamp();
 
-      await (logChannel as TextChannel).send({ embeds: [embed] });
+      await (logChannel as TextChannel).send({ embeds: [embed], flags: ['SuppressNotifications'] });
     }
   } catch (err: any) {
     console.error('Audit log edit error:', err.message);
@@ -521,8 +546,25 @@ function addWarningToDb(userId: string, reason: string) {
   };
   list.push(record);
   db.warnings[userId] = list;
-  saveDb(db);
   
+  if (!db.moderationLogs) db.moderationLogs = [];
+  
+  let tag = userId;
+  const cachedUser = client.users.cache.get(userId);
+  if (cachedUser) {
+    tag = cachedUser.tag;
+  }
+  
+  db.moderationLogs.push({
+    id: record.id,
+    userId,
+    userTag: tag,
+    action: 'warn',
+    reason,
+    timestamp: new Date().toLocaleString()
+  });
+  
+  saveDb(db);
   addLog(`Moderation warning added to ${userId}: ${reason}`, 'warn');
 }
 

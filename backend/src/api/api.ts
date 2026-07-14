@@ -523,6 +523,7 @@ router.get('/guild/members', async (req: Request, res: Response) => {
         xp: xpRecord.xp,
         warnings: userWarnings,
         joinedAt: m.joinedAt?.toLocaleDateString() || 'Unknown',
+        joinedAtTimestamp: m.joinedTimestamp || 0,
         isAdmin: m.permissions.has(PermissionsBitField.Flags.Administrator)
       };
     });
@@ -538,6 +539,22 @@ router.get('/guild/members', async (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ error: `Failed to fetch members: ${err.message}` });
   }
+});
+
+router.post('/members/level', async (req: Request, res: Response) => {
+  const { userId, level } = req.body;
+  if (typeof userId !== 'string' || !Number.isInteger(level) || level < 0 || level > 1000) return res.status(400).json({ error: 'Enter a level between 0 and 1000.' });
+  const guild = getGuild((req as any).guildId);
+  if (!guild) return res.status(404).json({ error: 'Guild connection not available' });
+  try {
+    const member = await guild.members.fetch(userId);
+    const db = getDb();
+    const current = db.xpData[userId] || { xp: 0, level: 0, lastXpTime: 0, username: member.user.username };
+    current.level = level; current.xp = level * 100; current.username = member.user.username;
+    db.xpData[userId] = current; saveDb(db);
+    addLog(`Updated ${member.user.tag} to level ${level} via dashboard`, 'info');
+    res.json({ message: `${member.user.username} is now level ${level}.` });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // ----------------------------------------------------
@@ -567,7 +584,7 @@ router.post('/moderation/purge', async (req: Request, res: Response) => {
 });
 
 router.post('/moderation/warn', async (req: Request, res: Response) => {
-  const { userId, reason } = req.body;
+  const { userId, reason, noticeChannelId, announcementMessage } = req.body;
   if (!userId || !reason) {
     return res.status(400).json({ error: 'Missing userId or reason' });
   }
@@ -582,10 +599,43 @@ router.post('/moderation/warn', async (req: Request, res: Response) => {
   };
   list.push(record);
   db.warnings[userId] = list;
+
+  if (!db.moderationLogs) db.moderationLogs = [];
+  
+  let tag = userId;
+  try {
+    const guild = getGuild((req as any).guildId);
+    const member = await guild?.members.fetch(userId);
+    if (member) tag = member.user.tag;
+  } catch {}
+
+  db.moderationLogs.push({
+    id: record.id,
+    userId,
+    userTag: tag,
+    action: 'warn',
+    reason,
+    timestamp: new Date().toLocaleString()
+  });
+
   saveDb(db);
 
   addLog(`Warned user (${userId}) via Web Dashboard. Reason: ${reason}`, 'warn');
-  await sendModerationNotice(userId, 'warned', reason);
+  
+  if (noticeChannelId && announcementMessage) {
+    try {
+      const channel = await client.channels.fetch(noticeChannelId);
+      if (channel && channel.isTextBased()) {
+        const parsedMsg = announcementMessage.replace(/{user}/g, `<@${userId}>`);
+        await (channel as TextChannel).send(parsedMsg);
+      }
+    } catch (err: any) {
+      addLog(`Failed to send custom warn notice: ${err.message}`, 'warn');
+    }
+  } else {
+    await sendModerationNotice(userId, 'warned', reason);
+  }
+
   res.json({ message: 'User warned successfully', warnings: list });
 });
 
@@ -604,7 +654,7 @@ router.post('/moderation/clearwarns', (req: Request, res: Response) => {
 });
 
 router.post('/moderation/kick', async (req: Request, res: Response) => {
-  const { userId, reason } = req.body;
+  const { userId, reason, noticeChannelId, announcementMessage } = req.body;
   if (!userId) {
     return res.status(400).json({ error: 'Missing userId' });
   }
@@ -622,7 +672,33 @@ router.post('/moderation/kick', async (req: Request, res: Response) => {
 
     await member.kick(reason || 'Kicked via Web Dashboard');
     addLog(`Kicked user ${member.user.tag} via Web Dashboard. Reason: ${reason}`, 'warn');
-    await sendModerationNotice(userId, 'kicked', reason);
+
+    const db = getDb();
+    if (!db.moderationLogs) db.moderationLogs = [];
+    db.moderationLogs.push({
+      id: Math.random().toString(36).substr(2, 9),
+      userId,
+      userTag: member.user.tag,
+      action: 'kick',
+      reason: reason || 'Kicked via Web Dashboard',
+      timestamp: new Date().toLocaleString()
+    });
+    saveDb(db);
+
+    if (noticeChannelId && announcementMessage) {
+      try {
+        const channel = await client.channels.fetch(noticeChannelId);
+        if (channel && channel.isTextBased()) {
+          const parsedMsg = announcementMessage.replace(/{user}/g, `**${member.user.tag}**`);
+          await (channel as TextChannel).send(parsedMsg);
+        }
+      } catch (err: any) {
+        addLog(`Failed to send custom kick notice: ${err.message}`, 'warn');
+      }
+    } else {
+      await sendModerationNotice(userId, 'kicked', reason);
+    }
+
     res.json({ message: `Successfully kicked ${member.user.username}` });
   } catch (err: any) {
     addLog(`Failed to kick member: ${err.message}`, 'error');
@@ -631,7 +707,7 @@ router.post('/moderation/kick', async (req: Request, res: Response) => {
 });
 
 router.post('/moderation/ban', async (req: Request, res: Response) => {
-  const { userId, reason } = req.body;
+  const { userId, reason, noticeChannelId, announcementMessage } = req.body;
   if (!userId) {
     return res.status(400).json({ error: 'Missing userId' });
   }
@@ -642,11 +718,37 @@ router.post('/moderation/ban', async (req: Request, res: Response) => {
   }
 
   try {
-    const member = await guild.members.fetch(userId);
+    const member = await guild.members.fetch(userId).catch(() => null);
     await guild.members.ban(userId, { reason: reason || 'Banned via Web Dashboard' });
     const tag = member ? member.user.tag : userId;
     addLog(`Banned user ${tag} via Web Dashboard. Reason: ${reason}`, 'warn');
-    await sendModerationNotice(userId, 'banned', reason);
+
+    const db = getDb();
+    if (!db.moderationLogs) db.moderationLogs = [];
+    db.moderationLogs.push({
+      id: Math.random().toString(36).substr(2, 9),
+      userId,
+      userTag: tag,
+      action: 'ban',
+      reason: reason || 'Banned via Web Dashboard',
+      timestamp: new Date().toLocaleString()
+    });
+    saveDb(db);
+
+    if (noticeChannelId && announcementMessage) {
+      try {
+        const channel = await client.channels.fetch(noticeChannelId);
+        if (channel && channel.isTextBased()) {
+          const parsedMsg = announcementMessage.replace(/{user}/g, `**${tag}**`);
+          await (channel as TextChannel).send(parsedMsg);
+        }
+      } catch (err: any) {
+        addLog(`Failed to send custom ban notice: ${err.message}`, 'warn');
+      }
+    } else {
+      await sendModerationNotice(userId, 'banned', reason);
+    }
+
     res.json({ message: `Successfully banned member` });
   } catch (err: any) {
     addLog(`Failed to ban member: ${err.message}`, 'error');
