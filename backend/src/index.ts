@@ -24,6 +24,10 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date() });
 });
 
+app.get('/', (req, res) => {
+  res.json({ status: 'OK', message: 'Fx Conquerors API is online' });
+});
+
 async function bootstrap() {
   // 1. Initialize Database (MongoDB Atlas / local file fallback)
   await initDbConnection();
