@@ -1364,8 +1364,17 @@ const App: React.FC = () => {
                 <select className="form-select" value={modNoticeChannelId} onChange={e => {
                   setModNoticeChannelId(e.target.value);
                   if (e.target.value) {
-                    const actionWord = activeModModal.action === 'warn' ? 'warned' : activeModModal.action === 'kick' ? 'kicked' : activeModModal.action === 'ban' ? 'banned' : 'unbanned';
-                    setModAnnounceMessage(`⚠️ {user} has been **${actionWord}** for: ${modReason || '[Reason]'}`);
+                    let actionWord = 'unbanned';
+                    if (activeModModal.action === 'warn') actionWord = 'warned';
+                    else if (activeModModal.action === 'kick') actionWord = 'kicked';
+                    else if (activeModModal.action === 'ban') actionWord = 'banned';
+                    else if (activeModModal.action === 'unwarn') actionWord = 'unwarned';
+
+                    if (activeModModal.action === 'unwarn') {
+                      setModAnnounceMessage(`✅ {user}'s warning has been removed. Reason: ${modReason || '[Reason]'}`);
+                    } else {
+                      setModAnnounceMessage(`⚠️ {user} has been **${actionWord}** for: ${modReason || '[Reason]'}`);
+                    }
                   } else {
                     setModAnnounceMessage('');
                   }
