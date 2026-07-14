@@ -107,7 +107,7 @@ function getAdminAccounts() {
 }
 
 function authMiddleware(req: Request, res: Response, next: NextFunction) {
-  if (req.path === '/auth/login' || req.path === '/public/status') {
+  if (req.path === '/auth/login' || req.path === '/public/status' || req.path === '/' || req.path === '/health') {
     return next();
   }
 
@@ -177,6 +177,14 @@ router.get('/public/status', (req: Request, res: Response) => {
     guildName: guild?.name || 'Fx Conquerors',
     avatar: client.user?.displayAvatarURL() || null
   });
+});
+
+router.get('/', (req: Request, res: Response) => {
+  res.json({ status: 'online', message: 'Fx Conquerors backend service is awake' });
+});
+
+router.get('/health', (req: Request, res: Response) => {
+  res.json({ status: 'ok', uptime: process.uptime() });
 });
 
 // ----------------------------------------------------
