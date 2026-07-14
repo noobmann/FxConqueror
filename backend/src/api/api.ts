@@ -653,6 +653,44 @@ router.post('/moderation/clearwarns', (req: Request, res: Response) => {
   res.json({ message: 'Warnings cleared successfully' });
 });
 
+router.post('/moderation/deletewarn', (req: Request, res: Response) => {
+  const { userId, warnId } = req.body;
+  if (!userId || !warnId) {
+    return res.status(400).json({ error: 'Missing userId or warnId' });
+  }
+
+  const db = getDb();
+  const list = db.warnings[userId] || [];
+  const before = list.length;
+  const filtered = list.filter(w => w.id !== warnId);
+  
+  if (filtered.length === before) {
+    return res.status(404).json({ error: 'Warning not found' });
+  }
+  
+  db.warnings[userId] = filtered;
+  
+  if (!db.moderationLogs) db.moderationLogs = [];
+  
+  let tag = userId;
+  const cachedUser = client.users.cache.get(userId);
+  if (cachedUser) tag = cachedUser.tag;
+  
+  db.moderationLogs.push({
+    id: Math.random().toString(36).substr(2, 9),
+    userId,
+    userTag: tag,
+    action: 'unwarn',
+    reason: `Warning removed (${warnId})`,
+    timestamp: new Date().toLocaleString()
+  });
+  
+  saveDb(db);
+
+  addLog(`Removed warning ${warnId} for user (${userId}) via Web Dashboard`, 'info');
+  res.json({ message: 'Warning removed successfully', warnings: filtered });
+});
+
 router.post('/moderation/kick', async (req: Request, res: Response) => {
   const { userId, reason, noticeChannelId, announcementMessage } = req.body;
   if (!userId) {
@@ -756,13 +794,60 @@ router.post('/moderation/ban', async (req: Request, res: Response) => {
   }
 });
 
+router.post('/moderation/unban', async (req: Request, res: Response) => {
+  const { userId, reason, noticeChannelId, announcementMessage } = req.body;
+  if (!userId) {
+    return res.status(400).json({ error: 'Missing userId' });
+  }
+
+  const guild = getGuild((req as any).guildId);
+  if (!guild) {
+    return res.status(404).json({ error: 'Guild connection not available' });
+  }
+
+  try {
+    await guild.bans.remove(userId, reason || 'Unbanned via Web Dashboard');
+    addLog(`Unbanned user ID ${userId} via Web Dashboard`, 'info');
+
+    const db = getDb();
+    if (!db.moderationLogs) db.moderationLogs = [];
+    db.moderationLogs.push({
+      id: Math.random().toString(36).substr(2, 9),
+      userId,
+      userTag: userId,
+      action: 'unban',
+      reason: reason || 'Unbanned via Web Dashboard',
+      timestamp: new Date().toLocaleString()
+    });
+    saveDb(db);
+
+    if (noticeChannelId && announcementMessage) {
+      try {
+        const channel = await client.channels.fetch(noticeChannelId);
+        if (channel && channel.isTextBased()) {
+          const parsedMsg = announcementMessage.replace(/{user}/g, `<@${userId}>`);
+          await (channel as TextChannel).send(parsedMsg);
+        }
+      } catch (err: any) {
+        addLog(`Failed to send custom unban notice: ${err.message}`, 'warn');
+      }
+    } else {
+      await sendModerationNotice(userId, 'unbanned', reason);
+    }
+
+    res.json({ message: `Successfully unbanned member` });
+  } catch (err: any) {
+    addLog(`Failed to unban member: ${err.message}`, 'error');
+    res.status(500).json({ error: `Failed to unban: ${err.message}` });
+  }
+});
+
 // ----------------------------------------------------
 // AI CHANNEL & SERVER ORGANIZER ROUTES
 // ----------------------------------------------------
 
 // AI suggest sorting of existing channels & recommend missing ones
 router.post('/ai/suggest-sorting', async (req: Request, res: Response) => {
-  if (!hasValidAIPasscode(req)) return res.status(403).json({ error: 'AI organizer passcode is incorrect.' });
   const guild = getGuild((req as any).guildId);
   if (!guild) {
     return res.status(404).json({ error: 'Guild connection not active' });

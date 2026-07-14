@@ -81,7 +81,7 @@ export interface ModerationLog {
   id: string;
   userId: string;
   userTag: string;
-  action: 'warn' | 'kick' | 'ban' | 'mute';
+  action: string;
   reason: string;
   timestamp: string;
 }

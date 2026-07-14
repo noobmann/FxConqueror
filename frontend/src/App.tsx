@@ -64,7 +64,7 @@ interface ModerationLog {
   id: string;
   userId: string;
   userTag: string;
-  action: 'warn' | 'kick' | 'ban' | 'mute';
+  action: string;
   reason: string;
   timestamp: string;
 }
@@ -82,6 +82,7 @@ interface DatabaseSchema {
   autoMod: AutoModSettings;
   verificationSettings?: VerificationSettings;
   moderationLogs?: ModerationLog[];
+  warnings?: Record<string, WarningRecord[]>;
 }
 
 interface BotStatus {
@@ -215,10 +216,11 @@ const App: React.FC = () => {
   const [levelUpMessage, setLevelUpMessage] = useState<string>('');
   const [roleRewards, setRoleRewards] = useState<LevelReward[]>([]);
   const [selectedUserWarnings, setSelectedUserWarnings] = useState<{ username: string; id: string; list: WarningRecord[] } | null>(null);
-  const [activeModModal, setActiveModModal] = useState<{ userId: string; username: string; action: 'warn' | 'kick' | 'ban' } | null>(null);
+  const [activeModModal, setActiveModModal] = useState<{ userId: string; username: string; action: 'warn' | 'kick' | 'ban' | 'unban' } | null>(null);
   const [modReason, setModReason] = useState<string>('');
   const [modNoticeChannelId, setModNoticeChannelId] = useState<string>('');
   const [modAnnounceMessage, setModAnnounceMessage] = useState<string>('');
+  const [levelsAccordionOpen, setLevelsAccordionOpen] = useState<'config' | 'warns' | 'kicks' | 'bans'>('config');
 
   // Tab 5: AutoMod States
   const [badWordsEnabled, setBadWordsEnabled] = useState<boolean>(false);
@@ -653,6 +655,24 @@ const App: React.FC = () => {
       pollData();
     } catch (err: any) {
       alert(err.message);
+    }
+  };
+
+  const handleRemoveWarning = async (userId: string, warnId: string) => {
+    try {
+      const res = await fetchAuth(`${API_BASE}/moderation/deletewarn`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, warnId })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      setSaveStatus({ type: 'success', msg: 'Warning removed!' });
+      setTimeout(() => setSaveStatus({ type: null, msg: null }), 3000);
+      pollData();
+    } catch (err: any) {
+      alert(`Unwarn failed: ${err.message}`);
     }
   };
 
@@ -1353,7 +1373,7 @@ const App: React.FC = () => {
                 <select className="form-select" value={modNoticeChannelId} onChange={e => {
                   setModNoticeChannelId(e.target.value);
                   if (e.target.value) {
-                    const actionWord = activeModModal.action === 'warn' ? 'warned' : activeModModal.action === 'kick' ? 'kicked' : 'banned';
+                    const actionWord = activeModModal.action === 'warn' ? 'warned' : activeModModal.action === 'kick' ? 'kicked' : activeModModal.action === 'ban' ? 'banned' : 'unbanned';
                     setModAnnounceMessage(`⚠️ {user} has been **${actionWord}** for: ${modReason || '[Reason]'}`);
                   } else {
                     setModAnnounceMessage('');
@@ -1789,29 +1809,157 @@ const App: React.FC = () => {
           {/* TAB CONTENT: Levels & Leaderboard */}
           {activeTab === 'levels' && (
             <div className="grid-2" style={{ gridTemplateColumns: '1fr 2fr' }}>
-              <div className="glass-panel" style={{ height: 'fit-content' }}>
-                <h2 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--panel-border)', paddingBottom: '8px' }}>🏆 Levels Config</h2>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 
-                <div className="form-group">
-                  <div className="toggle-wrapper">
-                    <div className="toggle-label-desc">
-                      <h4>Enable Leveling System</h4>
-                      <p>Grant members XP for texting in chat.</p>
-                    </div>
-                    <label className="switch">
-                      <input type="checkbox" checked={levelingEnabled} onChange={(e) => setLevelingEnabled(e.target.checked)} />
-                      <span className="slider"></span>
-                    </label>
+                {/* Accordion Item: Levels Config */}
+                <div className="glass-panel" style={{ padding: '15px' }}>
+                  <div 
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+                    onClick={() => setLevelsAccordionOpen(levelsAccordionOpen === 'config' ? 'config' : 'config')}
+                  >
+                    <h3 style={{ margin: 0, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      🏆 Levels Config
+                    </h3>
+                    <span style={{ fontSize: '0.8rem' }}>{levelsAccordionOpen === 'config' ? '▼' : '▶'}</span>
                   </div>
+                  
+                  {levelsAccordionOpen === 'config' && (
+                    <div style={{ marginTop: '15px', borderTop: '1px solid var(--panel-border)', paddingTop: '15px' }}>
+                      <div className="form-group">
+                        <div className="toggle-wrapper">
+                          <div className="toggle-label-desc">
+                            <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>Enable Leveling System</span>
+                          </div>
+                          <label className="switch" style={{ width: '40px', height: '22px' }}>
+                            <input type="checkbox" checked={levelingEnabled} onChange={(e) => setLevelingEnabled(e.target.checked)} />
+                            <span className="slider"></span>
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="form-group">
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Level Up Announcement Template</label>
+                        <textarea className="form-textarea" style={{ fontSize: '0.85rem', padding: '6px 10px', minHeight: '60px' }} disabled={!levelingEnabled} value={levelUpMessage} onChange={(e) => setLevelUpMessage(e.target.value)} />
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Use <b>{`{user}`}</b> and <b>{`{level}`}</b>.</span>
+                      </div>
+
+                      <button className="btn" style={{ width: '100%', justifyContent: 'center', padding: '8px' }} onClick={saveLevelingSettings}>Save Configurations</button>
+                    </div>
+                  )}
                 </div>
 
-                <div className="form-group">
-                  <label>Level Up Announcement Template</label>
-                  <textarea className="form-textarea" disabled={!levelingEnabled} value={levelUpMessage} onChange={(e) => setLevelUpMessage(e.target.value)} />
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Use <b>{`{user}`}</b> and <b>{`{level}`}</b>.</span>
+                {/* Accordion Item: Warned Users */}
+                <div className="glass-panel" style={{ padding: '15px' }}>
+                  <div 
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+                    onClick={() => setLevelsAccordionOpen(levelsAccordionOpen === 'warns' ? 'config' : 'warns')}
+                  >
+                    <h3 style={{ margin: 0, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      ⚠️ Warned Users ({Object.keys(botStatus?.settings?.warnings || {}).filter(uid => (botStatus?.settings?.warnings || {})[uid]?.length > 0).length})
+                    </h3>
+                    <span style={{ fontSize: '0.8rem' }}>{levelsAccordionOpen === 'warns' ? '▼' : '▶'}</span>
+                  </div>
+
+                  {levelsAccordionOpen === 'warns' && (() => {
+                    const warningsObj = botStatus?.settings?.warnings || {};
+                    const warnedUids = Object.keys(warningsObj).filter(uid => warningsObj[uid]?.length > 0);
+                    return (
+                      <div style={{ marginTop: '15px', borderTop: '1px solid var(--panel-border)', paddingTop: '15px', maxHeight: '350px', overflowY: 'auto' }}>
+                        {warnedUids.length === 0 ? (
+                          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', margin: 0 }}>No warned users.</p>
+                        ) : (
+                          warnedUids.map(uid => {
+                            const userWarnings = warningsObj[uid] || [];
+                            const username = members.find(m => m.id === uid)?.username || `ID: ${uid}`;
+                            return (
+                              <div key={uid} style={{ marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid var(--panel-border)' }}>
+                                <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)', marginBottom: '4px' }}>@{username}</div>
+                                {userWarnings.map((w: WarningRecord) => (
+                                  <div key={w.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', background: 'rgba(0,0,0,0.02)', padding: '6px 8px', borderRadius: '4px', marginBottom: '4px' }}>
+                                    <div style={{ fontSize: '0.785rem' }}>
+                                      <div style={{ fontWeight: 500 }}>{w.reason}</div>
+                                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{w.timestamp}</div>
+                                    </div>
+                                    <button className="btn btn-secondary" style={{ padding: '2px 6px', fontSize: '0.7rem', border: '1px solid rgba(239,68,68,0.2)', color: 'var(--accent-red)' }} onClick={() => handleRemoveWarning(uid, w.id)}>Remove</button>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
-                <button className="btn" style={{ marginBottom: '20px' }} onClick={saveLevelingSettings}>Save Level Configurations</button>
+                {/* Accordion Item: Kicked Users */}
+                <div className="glass-panel" style={{ padding: '15px' }}>
+                  <div 
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+                    onClick={() => setLevelsAccordionOpen(levelsAccordionOpen === 'kicks' ? 'config' : 'kicks')}
+                  >
+                    <h3 style={{ margin: 0, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      👟 Kicked Users ({botStatus?.settings?.moderationLogs?.filter(l => l.action === 'kick')?.length || 0})
+                    </h3>
+                    <span style={{ fontSize: '0.8rem' }}>{levelsAccordionOpen === 'kicks' ? '▼' : '▶'}</span>
+                  </div>
+
+                  {levelsAccordionOpen === 'kicks' && (
+                    <div style={{ marginTop: '15px', borderTop: '1px solid var(--panel-border)', paddingTop: '15px', maxHeight: '350px', overflowY: 'auto' }}>
+                      {!botStatus?.settings?.moderationLogs?.some(l => l.action === 'kick') ? (
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', margin: 0 }}>No kicks recorded.</p>
+                      ) : (
+                        botStatus?.settings?.moderationLogs?.filter(l => l.action === 'kick').map(log => (
+                          <div key={log.id} style={{ background: 'rgba(0,0,0,0.02)', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--panel-border)', marginBottom: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '3px' }}>
+                              <span>{log.userTag}</span>
+                              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>{log.timestamp.split(',')[0]}</span>
+                            </div>
+                            <div style={{ fontSize: '0.785rem', color: 'var(--text-secondary)' }}><b>Reason:</b> {log.reason}</div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Accordion Item: Banned Users */}
+                <div className="glass-panel" style={{ padding: '15px' }}>
+                  <div 
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+                    onClick={() => setLevelsAccordionOpen(levelsAccordionOpen === 'bans' ? 'config' : 'bans')}
+                  >
+                    <h3 style={{ margin: 0, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      🔥 Banned Users ({botStatus?.settings?.moderationLogs?.filter(l => l.action === 'ban')?.length || 0})
+                    </h3>
+                    <span style={{ fontSize: '0.8rem' }}>{levelsAccordionOpen === 'bans' ? '▼' : '▶'}</span>
+                  </div>
+
+                  {levelsAccordionOpen === 'bans' && (
+                    <div style={{ marginTop: '15px', borderTop: '1px solid var(--panel-border)', paddingTop: '15px', maxHeight: '350px', overflowY: 'auto' }}>
+                      {!botStatus?.settings?.moderationLogs?.some(l => l.action === 'ban') ? (
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', margin: 0 }}>No bans recorded.</p>
+                      ) : (
+                        botStatus?.settings?.moderationLogs?.filter(l => l.action === 'ban').map(log => (
+                          <div key={log.id} style={{ background: 'rgba(0,0,0,0.02)', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--panel-border)', marginBottom: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' }}>{log.userTag}</div>
+                              <button 
+                                className="btn btn-secondary" 
+                                style={{ padding: '2px 6px', fontSize: '0.7rem', border: '1px solid rgba(6,182,212,0.2)', color: 'var(--accent-cyan)' }}
+                                onClick={() => setActiveModModal({ userId: log.userId, username: log.userTag, action: 'unban' })}
+                              >
+                                🔓 Unban
+                              </button>
+                            </div>
+                            <div style={{ fontSize: '0.785rem', color: 'var(--text-secondary)', marginBottom: '2px' }}><b>Reason:</b> {log.reason}</div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{log.timestamp}</div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
 
               </div>
 
