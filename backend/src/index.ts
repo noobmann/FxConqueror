@@ -19,7 +19,11 @@ app.use(express.json());
 // API Routes
 app.use('/api', apiRouter);
 
-// Health check endpoint
+app.get('/ping', (req, res) => {
+  res.setHeader('Content-Type', 'text/plain');
+  res.status(200).send('OK');
+});
+
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date() });
 });
