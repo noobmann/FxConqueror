@@ -12,6 +12,7 @@ import {
   ChannelType
 } from 'discord.js';
 import { getDb, saveDb, XpRecord, WarningRecord } from '../utils/db';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export interface LogEntry {
   timestamp: string;
@@ -198,7 +199,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-// Event: Button Interaction (Verification System)
+// Event: Button Interaction (Verification & Custom Button Roles)
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
   
@@ -227,6 +228,40 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.reply({ content: '❌ Verification failed. Please contact an admin.', ephemeral: true });
     }
   }
+
+  // Self-Assign Roles via Button Roles Panel
+  if (interaction.customId.startsWith('btnrole:')) {
+    const roleId = interaction.customId.split(':')[1];
+    try {
+      const member = interaction.member as GuildMember;
+      const role = interaction.guild?.roles.cache.get(roleId);
+      
+      if (!role) {
+        await interaction.reply({ content: '❌ That role no longer exists in this server.', ephemeral: true });
+        return;
+      }
+
+      // Check role hierarchy (bot permission check)
+      const botMember = interaction.guild?.members.me;
+      if (botMember && role.position >= botMember.roles.highest.position) {
+        await interaction.reply({ content: `❌ I cannot assign this role because it is higher than my highest role. Please move my role higher in the Discord Server Settings!`, ephemeral: true });
+        return;
+      }
+      
+      if (member.roles.cache.has(roleId)) {
+        await member.roles.remove(roleId);
+        addLog(`Removed role ${role.name} from ${member.user.tag}`, 'info');
+        await interaction.reply({ content: `✅ Removed role **${role.name}** from you!`, ephemeral: true });
+      } else {
+        await member.roles.add(roleId);
+        addLog(`Assigned role ${role.name} to ${member.user.tag}`, 'info');
+        await interaction.reply({ content: `✅ Assigned role **${role.name}** to you!`, ephemeral: true });
+      }
+    } catch (err: any) {
+      addLog(`Role button assignment failed for ${interaction.user.tag}: ${err.message}`, 'error');
+      await interaction.reply({ content: '❌ Failed to update your roles. Please contact an admin.', ephemeral: true });
+    }
+  }
 });
 
 // Event: Member Joins (Welcome & Auto-role)
@@ -239,7 +274,14 @@ client.on('guildMemberAdd', async (member) => {
     try {
       const channel = await client.channels.fetch(db.welcomeSettings.channelId);
       if (channel && channel.isTextBased()) {
-        const welcomeText = db.welcomeSettings.message.replace(/{user}/g, `<@${member.id}>`);
+        const messageTemplate = db.welcomeSettings.message || "Welcome to the server, {user}!";
+        const welcomeText = messageTemplate
+          .replace(/{user}/g, `<@${member.id}>`)
+          .replace(/{mention}/g, `<@${member.id}>`)
+          .replace(/{username}/g, member.user.username)
+          .replace(/{displayName}/g, member.displayName || member.user.username)
+          .replace(/{server}/g, member.guild.name);
+
         if (db.welcomeSettings.embedStyle !== false) {
           const memberNumber = member.guild.memberCount;
           const embed = new EmbedBuilder()
@@ -284,7 +326,14 @@ client.on('guildMemberRemove', async (member) => {
     try {
       const channel = await client.channels.fetch(db.leaveSettings.channelId);
       if (channel && channel.isTextBased()) {
-        const goodbyeText = db.leaveSettings.message.replace(/{user}/g, `**${member.user.tag}**`);
+        const messageTemplate = db.leaveSettings.message || "Goodbye {user}, we will miss you!";
+        const goodbyeText = messageTemplate
+          .replace(/{user}/g, member.user.username)
+          .replace(/{username}/g, member.user.username)
+          .replace(/{displayName}/g, member.displayName || member.user.username)
+          .replace(/{mention}/g, `<@${member.id}>`)
+          .replace(/{server}/g, member.guild.name);
+
         await (channel as TextChannel).send(goodbyeText);
         addLog(`Sent goodbye message for ${member.user.username}`, 'info');
       }
@@ -530,6 +579,55 @@ client.on('messageCreate', async (message) => {
 
       db.xpData[userId] = userXp;
       saveDb(db);
+    }
+  }
+
+  // 6. AI Chatbot
+  const aiSettings = db.aiChatSettings || { enabled: false, channelId: '', replyOnMention: true, instructions: '' };
+  if (aiSettings.enabled) {
+    const isTargetChannel = aiSettings.channelId === channelId;
+    const isMentioned = message.mentions.has(client.user!.id);
+    
+    if (isTargetChannel || (aiSettings.replyOnMention && isMentioned)) {
+      try {
+        const apiKey = db.credentials?.geminiApiKey || process.env.GEMINI_API_KEY;
+        if (!apiKey) {
+          addLog('AI Chat failed: No Gemini API Key configured.', 'error');
+          return;
+        }
+
+        // Show typing indicator in the channel
+        await message.channel.sendTyping();
+
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+        
+        let cleanContent = message.content;
+        if (client.user) {
+          // Remove the bot mention from the prompt content
+          cleanContent = cleanContent.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
+        }
+
+        if (cleanContent.length > 0) {
+          const systemPrompt = aiSettings.instructions || "You are a helpful assistant. Always reply in Hindi or Hinglish. Keep it friendly and concise.";
+          
+          const finalPrompt = `System Instructions: ${systemPrompt}
+          
+User @${message.author.username} says: ${cleanContent}
+          
+Response (keep it natural, directly address the user, do not write "System:" or "User:", just write the reply):`;
+
+          const result = await model.generateContent(finalPrompt);
+          const replyText = result.response.text().trim();
+          
+          if (replyText) {
+            await message.reply(replyText);
+            addLog(`AI Chat reply sent to ${message.author.username} in #${(message.channel as any).name}`, 'info');
+          }
+        }
+      } catch (err: any) {
+        addLog(`AI Chat error: ${err.message}`, 'error');
+      }
     }
   }
 });

@@ -21,6 +21,23 @@ interface ReactionRole {
   roleId: string;
 }
 
+interface ButtonRole {
+  roleId: string;
+  label: string;
+  emoji?: string;
+  style: string;
+}
+
+interface ButtonRolePanel {
+  id: string;
+  name: string;
+  channelId: string;
+  embedTitle: string;
+  embedDescription: string;
+  embedColor: string;
+  buttons: ButtonRole[];
+}
+
 interface Trigger {
   id: string;
   trigger: string;
@@ -83,6 +100,7 @@ interface DatabaseSchema {
   verificationSettings?: VerificationSettings;
   moderationLogs?: ModerationLog[];
   warnings?: Record<string, WarningRecord[]>;
+  buttonRolePanels?: ButtonRolePanel[];
 }
 
 interface BotStatus {
@@ -237,6 +255,43 @@ const App: React.FC = () => {
   const [roleLoading, setRoleLoading] = useState<boolean>(false);
   const [roleAdvice, setRoleAdvice] = useState<string>('');
   const [scheduledMessages, setScheduledMessages] = useState<ScheduledMessage[]>([]);
+
+  // Roles Tab Sub-Navigation
+  const [rolesSubTab, setRolesSubTab] = useState<'editor' | 'buttons' | 'channelAccess'>('editor');
+
+  // AI Hub Tab Sub-Navigation
+  const [aiSubTab, setAiSubTab] = useState<'sorter' | 'chatbot'>('sorter');
+
+  // AI Chatbot States
+  const [aiChatEnabled, setAiChatEnabled] = useState<boolean>(false);
+  const [aiChatChannelId, setAiChatChannelId] = useState<string>('');
+  const [aiChatReplyOnMention, setAiChatReplyOnMention] = useState<boolean>(true);
+  const [aiChatInstructions, setAiChatInstructions] = useState<string>(
+    'You are a helpful Discord server assistant. Always reply in Hindi or Hinglish. Keep your responses short, natural, and helpful.'
+  );
+  const [aiChatSaving, setAiChatSaving] = useState<boolean>(false);
+
+  // Button Panels States
+  const [buttonRolePanels, setButtonRolePanels] = useState<ButtonRolePanel[]>([]);
+  const [panelName, setPanelName] = useState<string>('');
+  const [panelChannelId, setPanelChannelId] = useState<string>('');
+  const [panelEmbedTitle, setPanelEmbedTitle] = useState<string>('🎭 Self-Assign Roles');
+  const [panelEmbedDescription, setPanelEmbedDescription] = useState<string>('Click the buttons below to assign or remove roles!');
+  const [panelEmbedColor, setPanelEmbedColor] = useState<string>('#1687ff');
+  const [panelButtons, setPanelButtons] = useState<ButtonRole[]>([]);
+  
+  // New Button designer states
+  const [newBtnRoleId, setNewBtnRoleId] = useState<string>('');
+  const [newBtnLabel, setNewBtnLabel] = useState<string>('');
+  const [newBtnEmoji, setNewBtnEmoji] = useState<string>('');
+  const [newBtnStyle, setNewBtnStyle] = useState<string>('Primary');
+
+  // Channel Access/Permissions States
+  const [permChannelId, setPermChannelId] = useState<string>('');
+  const [permIsPrivate, setPermIsPrivate] = useState<boolean>(false);
+  const [permAllowedRoles, setPermAllowedRoles] = useState<string[]>([]);
+  const [permLoading, setPermLoading] = useState<boolean>(false);
+  const [permSaving, setPermSaving] = useState<boolean>(false);
   const [scheduleChannelId, setScheduleChannelId] = useState<string>('');
   const [scheduleMessage, setScheduleMessage] = useState<string>('');
   const [scheduleTimeIST, setScheduleTimeIST] = useState<string>('09:00');
@@ -383,6 +438,7 @@ const App: React.FC = () => {
       setWelcomeSettings(statusData.settings.welcomeSettings || { enabled: false, channelId: '', message: '', autoRoleId: '' });
       setLeaveSettings(statusData.settings.leaveSettings || { enabled: false, channelId: '', message: '' });
       setReactionRoles(statusData.settings.reactionRoles || []);
+      setButtonRolePanels(statusData.settings.buttonRolePanels || []);
       setTriggers(statusData.settings.triggers || []);
       setAuditLogChannelId(statusData.settings.auditLogChannelId || '');
       setModerationNoticeChannelId(statusData.settings.moderationNoticeChannelId || '');
@@ -403,6 +459,13 @@ const App: React.FC = () => {
         setVerifyEmbedTitle(statusData.settings.verificationSettings.embedTitle || '✅ Server Verification');
         setVerifyEmbedDescription(statusData.settings.verificationSettings.embedDescription || 'Click the button below to verify yourself and gain access to the server!');
         setVerifyEmbedColor(statusData.settings.verificationSettings.embedColor || '#00d26a');
+      }
+
+      if ((statusData.settings as any).aiChatSettings) {
+        setAiChatEnabled((statusData.settings as any).aiChatSettings.enabled || false);
+        setAiChatChannelId((statusData.settings as any).aiChatSettings.channelId || '');
+        setAiChatReplyOnMention((statusData.settings as any).aiChatSettings.replyOnMention !== false);
+        setAiChatInstructions((statusData.settings as any).aiChatSettings.instructions || '');
       }
 
       if (statusData.guildId) {
@@ -1036,6 +1099,116 @@ const App: React.FC = () => {
     }
   };
 
+  const saveButtonPanels = async (updated: ButtonRolePanel[]) => {
+    setButtonRolePanels(updated);
+    handleSave(`${API_BASE}/settings/button-panels`, { panels: updated }, 'Button roles panels saved!');
+  };
+
+  const sendButtonPanel = async (panel: ButtonRolePanel) => {
+    try {
+      setRoleLoading(true);
+      const res = await fetchAuth(`${API_BASE}/button-panels/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(panel)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to send button panel');
+      alert('✅ Button panel posted successfully to Discord and saved!');
+      if (data.settings && data.settings.buttonRolePanels) {
+        setButtonRolePanels(data.settings.buttonRolePanels);
+      }
+      setPanelName('');
+      setPanelChannelId('');
+      setPanelEmbedTitle('🎭 Self-Assign Roles');
+      setPanelEmbedDescription('Click the buttons below to assign or remove roles!');
+      setPanelEmbedColor('#1687ff');
+      setPanelButtons([]);
+    } catch (err: any) {
+      alert(`❌ Error sending button panel: ${err.message}`);
+    } finally {
+      setRoleLoading(false);
+    }
+  };
+
+  const fetchChannelPermissions = async (chanId: string) => {
+    if (!chanId) return;
+    setPermLoading(true);
+    try {
+      const res = await fetchAuth(`${API_BASE}/guild/channels/${chanId}/permissions`);
+      if (res.ok) {
+        const data = await res.json();
+        setPermIsPrivate(data.isPrivate);
+        setPermAllowedRoles(data.allowedRoles);
+      } else {
+        const data = await res.json();
+        alert(`❌ Failed to fetch channel permissions: ${data.error}`);
+      }
+    } catch (err: any) {
+      alert(`❌ Error: ${err.message}`);
+    } finally {
+      setPermLoading(false);
+    }
+  };
+
+  const saveChannelPermissions = async () => {
+    if (!permChannelId) return;
+    setPermSaving(true);
+    try {
+      const res = await fetchAuth(`${API_BASE}/guild/channels/${permChannelId}/permissions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          isPrivate: permIsPrivate,
+          allowedRoles: permAllowedRoles
+        })
+      });
+      if (res.ok) {
+        alert('✅ Channel visibility permissions updated successfully in Discord!');
+      } else {
+        const data = await res.json();
+        alert(`❌ Failed to update permissions: ${data.error}`);
+      }
+    } catch (err: any) {
+      alert(`❌ Error saving permissions: ${err.message}`);
+    } finally {
+      setPermSaving(false);
+    }
+  };
+
+  const saveAiChatSettings = async () => {
+    setAiChatSaving(true);
+    try {
+      const res = await fetchAuth(`${API_BASE}/settings/ai-chatbot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: aiChatEnabled,
+          channelId: aiChatChannelId,
+          replyOnMention: aiChatReplyOnMention,
+          instructions: aiChatInstructions
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.settings && data.settings.aiChatSettings) {
+          setAiChatEnabled(data.settings.aiChatSettings.enabled || false);
+          setAiChatChannelId(data.settings.aiChatSettings.channelId || '');
+          setAiChatReplyOnMention(data.settings.aiChatSettings.replyOnMention !== false);
+          setAiChatInstructions(data.settings.aiChatSettings.instructions || '');
+        }
+        alert('✅ AI Chatbot settings updated successfully!');
+      } else {
+        const data = await res.json();
+        alert(`❌ Failed to update settings: ${data.error}`);
+      }
+    } catch (err: any) {
+      alert(`❌ Error saving settings: ${err.message}`);
+    } finally {
+      setAiChatSaving(false);
+    }
+  };
+
   // Local storage save for personal gemini API key
   const handleSaveGeminiKey = (val: string) => {
     setGeminiApiKey(val);
@@ -1490,6 +1663,38 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              <div style={{ marginTop: '20px' }} className="glass-panel">
+                <h3 style={{ marginBottom: '10px' }}>🛡️ Moderation Action Logs</h3>
+                <div className="table-container">
+                  <table className="custom-table">
+                    <thead>
+                      <tr>
+                        <th>User</th>
+                        <th>Action</th>
+                        <th>Reason</th>
+                        <th>Timestamp</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {!botStatus?.settings?.moderationLogs || botStatus.settings.moderationLogs.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} style={{ textAlign: 'center', padding: '16px', color: 'var(--text-muted)' }}>No logs recorded.</td>
+                        </tr>
+                      ) : (
+                        [...botStatus.settings.moderationLogs].reverse().slice(0, 15).map(log => (
+                          <tr key={log.id}>
+                            <td style={{ fontWeight: 600 }}>{log.userTag} <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>({log.userId})</span></td>
+                            <td><span className={`pill ${log.action === 'ban' ? 'red' : log.action === 'kick' ? 'orange' : 'yellow'}`}>{log.action.toUpperCase()}</span></td>
+                            <td>{log.reason}</td>
+                            <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{log.timestamp}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           )}
 
@@ -1566,38 +1771,6 @@ const App: React.FC = () => {
                   </tbody>
                 </table>
               </div>
-
-              <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--panel-border)' }}>
-                <h3 style={{ marginBottom: '10px' }}>🛡️ Moderation Action Logs</h3>
-                <div className="table-container">
-                  <table className="custom-table">
-                    <thead>
-                      <tr>
-                        <th>User</th>
-                        <th>Action</th>
-                        <th>Reason</th>
-                        <th>Timestamp</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {!botStatus?.settings?.moderationLogs || botStatus.settings.moderationLogs.length === 0 ? (
-                        <tr>
-                          <td colSpan={4} style={{ textAlign: 'center', padding: '16px', color: 'var(--text-muted)' }}>No logs recorded.</td>
-                        </tr>
-                      ) : (
-                        [...botStatus.settings.moderationLogs].reverse().slice(0, 15).map(log => (
-                          <tr key={log.id}>
-                            <td style={{ fontWeight: 600 }}>{log.userTag} <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>({log.userId})</span></td>
-                            <td><span className={`pill ${log.action === 'ban' ? 'red' : log.action === 'kick' ? 'orange' : 'yellow'}`}>{log.action.toUpperCase()}</span></td>
-                            <td>{log.reason}</td>
-                            <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{log.timestamp}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
             </div>
           )}
 
@@ -1634,7 +1807,7 @@ const App: React.FC = () => {
                   <div className="form-group">
                     <label>Welcome Message Template</label>
                     <textarea className="form-textarea" disabled={!welcomeSettings.enabled} value={welcomeSettings.message} onChange={(e) => setWelcomeSettings({ ...welcomeSettings, message: e.target.value })} placeholder="Welcome to the server, {user}!" />
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Use <b>{`{user}`}</b> to mention the member.</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Use <b>{`{user}`}</b> or <b>{`{mention}`}</b> to mention, <b>{`{username}`}</b> for clean username, <b>{`{displayName}`}</b> for nickname, <b>{`{server}`}</b> for server name.</span>
                   </div>
                   <div className="form-group"><div className="toggle-wrapper"><div className="toggle-label-desc"><h4>Avatar welcome card</h4><p>Send a rich welcome embed with the member avatar and member number.</p></div><label className="switch"><input type="checkbox" checked={welcomeSettings.embedStyle !== false} onChange={e => setWelcomeSettings({ ...welcomeSettings, embedStyle: e.target.checked })} /><span className="slider"></span></label></div></div>
 
@@ -1680,7 +1853,7 @@ const App: React.FC = () => {
                   <div className="form-group">
                     <label>Goodbye Message Template</label>
                     <textarea className="form-textarea" disabled={!leaveSettings.enabled} value={leaveSettings.message} onChange={(e) => setLeaveSettings({ ...leaveSettings, message: e.target.value })} placeholder="Goodbye {user}, we will miss you!" />
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Use <b>{`{user}`}</b> to output the username.</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Use <b>{`{user}`}</b> or <b>{`{username}`}</b> for clean username, <b>{`{displayName}`}</b> for nickname, <b>{`{mention}`}</b> for mention, <b>{`{server}`}</b> for server name.</span>
                   </div>
 
                   <button className="btn" onClick={saveLeaveSettings}>Save Goodbye settings</button>
@@ -2070,26 +2243,436 @@ const App: React.FC = () => {
           )}
 
           {activeTab === 'roles' && (
-            <div className="grid-2" style={{ gridTemplateColumns: '1fr 1.4fr' }}>
-              <div className="glass-panel">
-                <h2 style={{ marginBottom: '14px' }}>Create new role</h2>
-                <div className="form-group"><label>New role name</label><input className="form-input" value={newRoleName} onChange={e => setNewRoleName(e.target.value)} placeholder="Example: London Session" /></div>
-                <div className="form-group"><label>Role color</label><input type="color" value={roleColor} onChange={e => setRoleColor(e.target.value)} /></div>
-                <button className="btn" disabled={roleLoading || !newRoleName.trim()} onClick={() => runRoleAction('/roles/create', { name: newRoleName, color: roleColor }).then(() => setNewRoleName(''))}>Create new role</button>
-                <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--panel-border)' }}>
-                  <h3 style={{ marginBottom: '10px' }}>Edit or delete an old role</h3>
-                  <div className="form-group"><label>Old role</label><select className="form-select" value={selectedRoleId} onChange={e => selectRole(e.target.value)}><option value="">-- Select old role --</option>{roles.map(role => <option key={role.id} value={role.id}>{role.name} ({role.memberCount} members){role.protected ? ' - protected' : ''}</option>)}</select></div>
-                  {selectedRoleId && <><div className="form-group"><label>Rename role</label><input className="form-input" value={roleName} onChange={e => setRoleName(e.target.value)} /></div><div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}><button className="btn btn-secondary" disabled={roleLoading || selectedRole?.protected || !roleName.trim()} onClick={() => runRoleAction('/roles/update', { roleId: selectedRoleId, name: roleName, color: roleColor })}>Save changes</button><button className="btn btn-danger" disabled={roleLoading || selectedRole?.protected} onClick={() => { if (window.confirm(`Delete ${selectedRole?.name}? This cannot be undone.`)) runRoleAction('/roles/delete', { roleId: selectedRoleId }); }}>Delete old role</button></div></>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
+              {/* Sub-navigation tabs */}
+              <div className="glass-panel" style={{ padding: '10px 20px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <button
+                  className={`btn ${rolesSubTab === 'editor' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setRolesSubTab('editor')}
+                  style={{ borderRadius: '8px', padding: '8px 16px' }}
+                >
+                  🛡️ Role Builder
+                </button>
+                <button
+                  className={`btn ${rolesSubTab === 'buttons' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setRolesSubTab('buttons')}
+                  style={{ borderRadius: '8px', padding: '8px 16px' }}
+                >
+                  🎭 Self-Assign Buttons
+                </button>
+                <button
+                  className={`btn ${rolesSubTab === 'channelAccess' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setRolesSubTab('channelAccess')}
+                  style={{ borderRadius: '8px', padding: '8px 16px' }}
+                >
+                  🔒 Channel Access
+                </button>
+              </div>
+
+              {rolesSubTab === 'editor' && (
+                <div className="grid-2" style={{ gridTemplateColumns: '1fr 1.4fr' }}>
+                  <div className="glass-panel">
+                    <h2 style={{ marginBottom: '14px' }}>Create new role</h2>
+                    <div className="form-group"><label>New role name</label><input className="form-input" value={newRoleName} onChange={e => setNewRoleName(e.target.value)} placeholder="Example: London Session" /></div>
+                    <div className="form-group"><label>Role color</label><input type="color" value={roleColor} onChange={e => setRoleColor(e.target.value)} /></div>
+                    <button className="btn" disabled={roleLoading || !newRoleName.trim()} onClick={() => runRoleAction('/roles/create', { name: newRoleName, color: roleColor }).then(() => setNewRoleName(''))}>Create new role</button>
+                    <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--panel-border)' }}>
+                      <h3 style={{ marginBottom: '10px' }}>Edit or delete an old role</h3>
+                      <div className="form-group"><label>Old role</label><select className="form-select" value={selectedRoleId} onChange={e => selectRole(e.target.value)}><option value="">-- Select old role --</option>{roles.map(role => <option key={role.id} value={role.id}>{role.name} ({role.memberCount} members){role.protected ? ' - protected' : ''}</option>)}</select></div>
+                      {selectedRoleId && <><div className="form-group"><label>Rename role</label><input className="form-input" value={roleName} onChange={e => setRoleName(e.target.value)} /></div><div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}><button className="btn btn-secondary" disabled={roleLoading || selectedRole?.protected || !roleName.trim()} onClick={() => runRoleAction('/roles/update', { roleId: selectedRoleId, name: roleName, color: roleColor })}>Save changes</button><button className="btn btn-danger" disabled={roleLoading || selectedRole?.protected} onClick={() => { if (window.confirm(`Delete ${selectedRole?.name}? This cannot be undone.`)) runRoleAction('/roles/delete', { roleId: selectedRoleId }); }}>Delete old role</button></div></>}
+                    </div>
+                  </div>
+                  <div className="glass-panel">
+                    <h3 style={{ marginBottom: '6px' }}>Replace role for everyone</h3>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '14px' }}>Every member with the old role will receive the new role, and the old role will be removed.</p>
+                    <div className="form-group"><label>Old role to replace</label><select className="form-select" value={replaceFromRoleId} onChange={e => setReplaceFromRoleId(e.target.value)}><option value="">-- Select old role --</option>{roles.map(role => <option key={role.id} value={role.id}>{role.name} ({role.memberCount} members)</option>)}</select></div>
+                    <div className="form-group"><label>New replacement role</label><select className="form-select" value={replaceRoleId} onChange={e => setReplaceRoleId(e.target.value)}><option value="">-- Select new role --</option>{roles.filter(role => role.id !== replaceFromRoleId).map(role => <option key={role.id} value={role.id}>{role.name}</option>)}</select></div>
+                    <button className="btn" disabled={roleLoading || !replaceFromRoleId || !replaceRoleId} onClick={() => { if (window.confirm('Replace this role for every member?')) runRoleAction('/roles/replace', { fromRoleId: replaceFromRoleId, toRoleId: replaceRoleId }); }}>Replace role for all members</button>
+                    <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--panel-border)' }}><h3 style={{ marginBottom: '6px' }}>AI cleanup advice</h3><p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '10px' }}>Suggestions only—AI never edits roles automatically.</p><button className="btn" disabled={roleLoading} onClick={getAIRoleAdvice}>Ask AI to review roles</button>{roleAdvice && renderFormattedAdvice(roleAdvice)}</div>
+                  </div>
                 </div>
-              </div>
-              <div className="glass-panel">
-                <h3 style={{ marginBottom: '6px' }}>Replace role for everyone</h3>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '14px' }}>Every member with the old role will receive the new role, and the old role will be removed.</p>
-                <div className="form-group"><label>Old role to replace</label><select className="form-select" value={replaceFromRoleId} onChange={e => setReplaceFromRoleId(e.target.value)}><option value="">-- Select old role --</option>{roles.map(role => <option key={role.id} value={role.id}>{role.name} ({role.memberCount} members)</option>)}</select></div>
-                <div className="form-group"><label>New replacement role</label><select className="form-select" value={replaceRoleId} onChange={e => setReplaceRoleId(e.target.value)}><option value="">-- Select new role --</option>{roles.filter(role => role.id !== replaceFromRoleId).map(role => <option key={role.id} value={role.id}>{role.name}</option>)}</select></div>
-                <button className="btn" disabled={roleLoading || !replaceFromRoleId || !replaceRoleId} onClick={() => { if (window.confirm('Replace this role for every member?')) runRoleAction('/roles/replace', { fromRoleId: replaceFromRoleId, toRoleId: replaceRoleId }); }}>Replace role for all members</button>
-                <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--panel-border)' }}><h3 style={{ marginBottom: '6px' }}>AI cleanup advice</h3><p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '10px' }}>Suggestions only—AI never edits roles automatically.</p><button className="btn" disabled={roleLoading} onClick={getAIRoleAdvice}>Ask AI to review roles</button>{roleAdvice && renderFormattedAdvice(roleAdvice)}</div>
-              </div>
+              )}
+
+              {rolesSubTab === 'buttons' && (
+                <div className="grid-2" style={{ gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                  <div className="glass-panel">
+                    <h2 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--panel-border)', paddingBottom: '8px' }}>
+                      🎭 Create Role Selection Panel
+                    </h2>
+                    
+                    <div className="form-group">
+                      <label>Internal Panel Name</label>
+                      <input
+                        className="form-input"
+                        value={panelName}
+                        onChange={e => setPanelName(e.target.value)}
+                        placeholder="e.g., Strategy Roles Panel"
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label>Target Channel to Send Panel</label>
+                      <select
+                        className="form-select"
+                        value={panelChannelId}
+                        onChange={e => setPanelChannelId(e.target.value)}
+                      >
+                        <option value="">-- Select Channel --</option>
+                        {channels.filter(ch => ch.type !== 2).map(ch => (
+                          <option key={ch.id} value={ch.id}>#{ch.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <h4 style={{ marginTop: '1.5rem', marginBottom: '0.5rem' }}>Embed Configuration</h4>
+                    <div className="form-group">
+                      <label>Embed Title</label>
+                      <input
+                        className="form-input"
+                        value={panelEmbedTitle}
+                        onChange={e => setPanelEmbedTitle(e.target.value)}
+                        placeholder="e.g., 🛡️ Select Your Roles"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Embed Description</label>
+                      <textarea
+                        className="form-textarea"
+                        value={panelEmbedDescription}
+                        onChange={e => setPanelEmbedDescription(e.target.value)}
+                        placeholder="Click the buttons below to assign or remove roles..."
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Embed Color Accent</label>
+                      <input
+                        type="color"
+                        value={panelEmbedColor}
+                        onChange={e => setPanelEmbedColor(e.target.value)}
+                      />
+                    </div>
+
+                    <button
+                      className="btn btn-primary"
+                      disabled={roleLoading || !panelChannelId || !panelName.trim() || panelButtons.length === 0}
+                      onClick={() => {
+                        const newId = 'panel_' + Date.now();
+                        sendButtonPanel({
+                          id: newId,
+                          name: panelName,
+                          channelId: panelChannelId,
+                          embedTitle: panelEmbedTitle,
+                          embedDescription: panelEmbedDescription,
+                          embedColor: panelEmbedColor,
+                          buttons: panelButtons
+                        });
+                      }}
+                      style={{ width: '100%', justifyContent: 'center', marginTop: '1rem', padding: '12px' }}
+                    >
+                      🚀 Post Panel to Discord
+                    </button>
+
+                    {buttonRolePanels.length > 0 && (
+                      <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--panel-border)' }}>
+                        <h3 style={{ marginBottom: '10px' }}>Active Panels Configs</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {buttonRolePanels.map(p => (
+                            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', background: 'rgba(0,0,0,0.02)', borderRadius: '8px', border: '1px solid var(--panel-border)' }}>
+                              <div>
+                                <strong style={{ fontSize: '0.9rem' }}>{p.name}</strong>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                  Channel: #{channels.find(c => c.id === p.channelId)?.name || 'unknown'} · {p.buttons.length} buttons
+                                </div>
+                              </div>
+                              <button
+                                className="btn btn-danger"
+                                style={{ padding: '4px 8px', fontSize: '0.75rem', height: 'fit-content' }}
+                                onClick={() => {
+                                  if (window.confirm(`Delete configuration for panel "${p.name}"? (This won't delete the message from Discord)`)) {
+                                    const updated = buttonRolePanels.filter(panel => panel.id !== p.id);
+                                    saveButtonPanels(updated);
+                                  }
+                                }}
+                              >
+                                Delete Config
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    <div>
+                      <h3 style={{ marginBottom: '1rem' }}>Buttons List ({panelButtons.length}/25)</h3>
+                      {panelButtons.length === 0 ? (
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No buttons added yet. Design some below!</p>
+                      ) : (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '1rem', padding: '10px', background: 'rgba(0,0,0,0.02)', borderRadius: '8px' }}>
+                          {panelButtons.map((btn, idx) => {
+                            const btnRole = roles.find(r => r.id === btn.roleId);
+                            const styleColors = {
+                              Primary: '#5865f2',
+                              Secondary: '#4f545c',
+                              Success: '#248046',
+                              Danger: '#da373c'
+                            };
+                            return (
+                              <div
+                                key={idx}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  padding: '6px 12px',
+                                  background: styleColors[btn.style as keyof typeof styleColors] || '#5865f2',
+                                  color: '#fff',
+                                  borderRadius: '6px',
+                                  fontSize: '0.85rem',
+                                  fontWeight: 500
+                                }}
+                              >
+                                {btn.emoji && <span>{btn.emoji}</span>}
+                                <span>{btn.label}</span>
+                                <span style={{ opacity: 0.75, fontSize: '0.75rem' }}>({btnRole?.name || 'Unknown'})</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setPanelButtons(panelButtons.filter((_, i) => i !== idx))}
+                                  style={{
+                                    border: 'none',
+                                    background: 'none',
+                                    color: '#fff',
+                                    cursor: 'pointer',
+                                    fontWeight: 'bold',
+                                    marginLeft: '4px'
+                                  }}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ borderTop: '1px solid var(--panel-border)', paddingTop: '15px' }}>
+                      <h4 style={{ marginBottom: '12px' }}>Add Button to Panel</h4>
+                      <div className="form-group">
+                        <label>Target Role to Toggle</label>
+                        <select
+                          className="form-select"
+                          value={newBtnRoleId}
+                          onChange={e => {
+                            setNewBtnRoleId(e.target.value);
+                            const r = roles.find(rl => rl.id === e.target.value);
+                            if (r && !newBtnLabel) setNewBtnLabel(r.name);
+                          }}
+                        >
+                          <option value="">-- Choose Role --</option>
+                          {roles.map(role => (
+                            <option key={role.id} value={role.id}>{role.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="form-group">
+                        <label>Button Label Text</label>
+                        <input
+                          className="form-input"
+                          value={newBtnLabel}
+                          onChange={e => setNewBtnLabel(e.target.value)}
+                          placeholder="e.g., Access Channel"
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label>Button Emoji (Optional)</label>
+                        <input
+                          className="form-input"
+                          value={newBtnEmoji}
+                          onChange={e => setNewBtnEmoji(e.target.value)}
+                          placeholder="e.g., 👑, 📊, 📈"
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label>Button Style Color</label>
+                        <select
+                          className="form-select"
+                          value={newBtnStyle}
+                          onChange={e => setNewBtnStyle(e.target.value)}
+                        >
+                          <option value="Primary">Blue (Primary)</option>
+                          <option value="Secondary">Grey (Secondary)</option>
+                          <option value="Success">Green (Success)</option>
+                          <option value="Danger">Red (Danger)</option>
+                        </select>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        disabled={!newBtnRoleId || !newBtnLabel.trim() || panelButtons.length >= 25}
+                        onClick={() => {
+                          setPanelButtons([...panelButtons, {
+                            roleId: newBtnRoleId,
+                            label: newBtnLabel,
+                            emoji: newBtnEmoji.trim() || undefined,
+                            style: newBtnStyle
+                          }]);
+                          setNewBtnRoleId('');
+                          setNewBtnLabel('');
+                          setNewBtnEmoji('');
+                          setNewBtnStyle('Primary');
+                        }}
+                        style={{ width: '100%', justifyContent: 'center' }}
+                      >
+                        + Add Button
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {rolesSubTab === 'channelAccess' && (
+                <div className="glass-panel">
+                  <h2 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--panel-border)', paddingBottom: '8px' }}>
+                    🔒 Channel Visibility & Access Editor
+                  </h2>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                    Configure which roles can see your server channels. Set a channel to private to hide it from `@everyone` (standard members), and check the roles that should see it.
+                  </p>
+
+                  <div className="grid-2" style={{ gridTemplateColumns: '1fr 1.5fr', gap: '20px' }}>
+                    <div>
+                      <div className="form-group">
+                        <label>Select Target Channel</label>
+                        <select
+                          className="form-select"
+                          value={permChannelId}
+                          onChange={e => {
+                            setPermChannelId(e.target.value);
+                            fetchChannelPermissions(e.target.value);
+                          }}
+                        >
+                          <option value="">-- Choose Channel --</option>
+                          {channels.filter(ch => ch.type !== 2).map(ch => (
+                            <option key={ch.id} value={ch.id}>#{ch.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {permChannelId && (
+                        <div className="form-group" style={{ marginTop: '1.5rem' }}>
+                          <div className="toggle-wrapper">
+                            <div className="toggle-label-desc">
+                              <h4>Private Channel (Hidden)</h4>
+                              <p>Disable view permissions for `@everyone` (standard members).</p>
+                            </div>
+                            <label className="switch">
+                              <input
+                                type="checkbox"
+                                checked={permIsPrivate}
+                                onChange={e => setPermIsPrivate(e.target.checked)}
+                              />
+                              <span className="slider"></span>
+                            </label>
+                          </div>
+                        </div>
+                      )}
+
+                      {permChannelId && (
+                        <button
+                          className="btn btn-primary"
+                          disabled={permSaving || permLoading}
+                          onClick={saveChannelPermissions}
+                          style={{ width: '100%', justifyContent: 'center', marginTop: '1.5rem', padding: '10px' }}
+                        >
+                          {permSaving ? 'Saving Permissions...' : '💾 Save Channel Permissions'}
+                        </button>
+                      )}
+                    </div>
+
+                    <div>
+                      {permLoading ? (
+                        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                          Loading channel permission settings...
+                        </div>
+                      ) : permChannelId ? (
+                        <div>
+                          <h3 style={{ marginBottom: '10px', fontSize: '1rem' }}>Allowed Roles</h3>
+                          <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '12px' }}>
+                            Check the roles that are explicitly allowed to view this channel:
+                          </p>
+
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '8px',
+                              maxHeight: '300px',
+                              overflowY: 'auto',
+                              padding: '10px',
+                              border: '1px solid var(--panel-border)',
+                              borderRadius: '8px',
+                              background: 'rgba(0,0,0,0.01)'
+                            }}
+                          >
+                            {roles.map(role => {
+                              const isChecked = permAllowedRoles.includes(role.id);
+                              return (
+                                <label
+                                  key={role.id}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                    padding: '8px',
+                                    borderRadius: '6px',
+                                    background: isChecked ? 'rgba(37, 99, 235, 0.05)' : 'transparent',
+                                    cursor: 'pointer',
+                                    border: '1px solid transparent',
+                                    borderColor: isChecked ? 'rgba(37, 99, 235, 0.15)' : 'transparent',
+                                    transition: 'background 0.2s'
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={e => {
+                                      if (e.target.checked) {
+                                        setPermAllowedRoles([...permAllowedRoles, role.id]);
+                                      } else {
+                                        setPermAllowedRoles(permAllowedRoles.filter(id => id !== role.id));
+                                      }
+                                    }}
+                                  />
+                                  <span
+                                    style={{
+                                      width: '12px',
+                                      height: '12px',
+                                      borderRadius: '50%',
+                                      backgroundColor: role.color || '#5865f2',
+                                      display: 'inline-block'
+                                    }}
+                                  />
+                                  <span style={{ fontWeight: isChecked ? 600 : 400 }}>{role.name}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', border: '2px dashed var(--panel-border)', borderRadius: '12px', padding: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>
+                          Select a channel on the left to edit its access permissions.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -2216,7 +2799,7 @@ const App: React.FC = () => {
                             <td colSpan={3} style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>No custom triggers created.</td>
                           </tr>
                         ) : (
-                          triggers.map(t => (
+                            triggers.map(t => (
                             <tr key={t.id}>
                               <td><span className="pill green">{t.trigger}</span></td>
                               <td style={{ color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', fontSize: '0.9rem' }}>{t.reply}</td>
@@ -2236,220 +2819,330 @@ const App: React.FC = () => {
 
           {/* TAB CONTENT: AI Server Organizer */}
           {activeTab === 'aiHub' && (
-            <div className="glass-panel">
-              <div style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--panel-border)', paddingBottom: '12px' }}>
-                <h2>🤖 AI Server Organizer & Channel Sorter</h2>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', lineHeight: '1.5', marginBottom: '1rem' }}>
-                  Is your Discord server messy with text and voice channels scattered everywhere? 
-                  AI will look at all your existing channels, design logical category groups, and organize your channel list perfectly.
-                </p>
-
-                {/* MODERATOR'S PERSONAL GEMINI KEY CONFIG (Stored only in local browser) */}
-                <div style={{
-                  background: 'rgba(37, 99, 235, 0.05)', border: '1px solid rgba(37, 99, 235, 0.15)',
-                  padding: '16px 20px', borderRadius: '8px', maxWidth: '600px', marginBottom: '1.5rem'
-                }}>
-                  <h4 style={{ margin: '0 0 5px 0', fontSize: '0.925rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    🔑 Gemini API Key Configuration
-                  </h4>
-                  <p style={{ margin: '0 0 12px 0', fontSize: '0.785rem', color: 'var(--text-secondary)' }}>
-                    AI features (jaise automatic channel suggestions aur renames) ko utilize karne ke liye yahan apni personal Gemini API Key paste karein. Yeh key aapke browser me locally save rahegi.
-                  </p>
-                  
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <input 
-                      type={showGeminiKey ? "text" : "password"} 
-                      className="form-input" 
-                      style={{ padding: '8px 12px', fontSize: '0.875rem' }}
-                      placeholder={geminiApiKey ? "●●●●●●●● (Personal Key Saved)" : "Paste your personal Gemini API Key..."} 
-                      value={geminiApiKey}
-                      onChange={(e) => handleSaveGeminiKey(e.target.value)}
-                    />
-                    <button 
-                      type="button" 
-                      className="btn btn-secondary" 
-                      style={{ padding: '8px 12px' }}
-                      onClick={() => setShowGeminiKey(!showGeminiKey)}
-                    >
-                      {showGeminiKey ? "👁️" : "🙈"}
-                    </button>
-                    {geminiApiKey && (
-                      <button 
-                        type="button" 
-                        className="btn btn-danger" 
-                        style={{ padding: '8px 12px' }}
-                        onClick={() => handleSaveGeminiKey('')}
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* AI Passcode input block */}
-                <div style={{
-                  background: 'rgba(0,0,0,0.02)', border: '1px solid var(--panel-border)',
-                  padding: '16px 20px', borderRadius: '8px', maxWidth: '600px', marginBottom: '1.5rem'
-                }}>
-                  <h4 style={{ margin: '0 0 5px 0', fontSize: '0.925rem' }}>
-                    🔒 AI Organizer Security Passcode
-                  </h4>
-                  <p style={{ margin: '0 0 12px 0', fontSize: '0.785rem', color: 'var(--text-secondary)' }}>
-                    If a passcode gate is configured on the backend, please enter the passcode below to verify your authorization.
-                  </p>
-                  <input 
-                    type="password" 
-                    className="form-input" 
-                    style={{ padding: '8px 12px', fontSize: '0.875rem' }} 
-                    placeholder="Enter AI organizer passcode..." 
-                    value={aiPasscode} 
-                    onChange={e => setAiPasscode(e.target.value)} 
-                  />
-                </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
+              {/* Sub-navigation tabs */}
+              <div className="glass-panel" style={{ padding: '10px 20px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <button
+                  className={`btn ${aiSubTab === 'sorter' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setAiSubTab('sorter')}
+                  style={{ borderRadius: '8px', padding: '8px 16px' }}
+                >
+                  📁 Server Sorter
+                </button>
+                <button
+                  className={`btn ${aiSubTab === 'chatbot' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setAiSubTab('chatbot')}
+                  style={{ borderRadius: '8px', padding: '8px 16px' }}
+                >
+                  🤖 Auto AI Chatbot
+                </button>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', alignItems: 'center', justifyContent: 'center', minHeight: '300px' }}>
-                {!aiLoading && !aiSortingSuggestions && (
-                  <div style={{ textAlign: 'center', padding: '20px' }}>
-                    <div style={{ fontSize: '4.5rem', marginBottom: '20px' }}>📁✨</div>
-                    <h3 style={{ marginBottom: '10px' }}>Organize Server Instantly</h3>
-                    <p style={{ color: 'var(--text-secondary)', marginBottom: '20px', maxWidth: '500px', margin: '0 auto 20px auto' }}>
-                      Analyze existing channels, re-arrange them neatly, and choose whether to generate missing recommended channels.
+              {aiSubTab === 'sorter' && (
+                <div className="glass-panel">
+                  <div style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--panel-border)', paddingBottom: '12px' }}>
+                    <h2>🤖 AI Server Organizer & Channel Sorter</h2>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', lineHeight: '1.5', marginBottom: '1rem' }}>
+                      Is your Discord server messy with text and voice channels scattered everywhere? 
+                      AI will look at all your existing channels, design logical category groups, and organize your channel list perfectly.
                     </p>
-                    
-                    {/* Auto Emoji toggle */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '30px' }}>
-                      <label className="switch" style={{ width: '40px', height: '22px' }}>
-                        <input type="checkbox" checked={aiAutoEmoji} onChange={(e) => setAiAutoEmoji(e.target.checked)} />
-                        <span className="slider"></span>
-                      </label>
-                      <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                        ✨ AI Suggest relevant Emojis for Channel Names
-                      </span>
+
+                    {/* MODERATOR'S PERSONAL GEMINI KEY CONFIG (Stored only in local browser) */}
+                    <div style={{
+                      background: 'rgba(37, 99, 235, 0.05)', border: '1px solid rgba(37, 99, 235, 0.15)',
+                      padding: '16px 20px', borderRadius: '8px', maxWidth: '600px', marginBottom: '1.5rem'
+                    }}>
+                      <h4 style={{ margin: '0 0 5px 0', fontSize: '0.925rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        🔑 Gemini API Key Configuration
+                      </h4>
+                      <p style={{ margin: '0 0 12px 0', fontSize: '0.785rem', color: 'var(--text-secondary)' }}>
+                        AI features (jaise automatic channel suggestions aur renames) ko utilize karne ke liye yahan apni personal Gemini API Key paste karein. Yeh key aapke browser me locally save rahegi.
+                      </p>
+                      
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <input 
+                          type={showGeminiKey ? "text" : "password"} 
+                          className="form-input" 
+                          style={{ padding: '8px 12px', fontSize: '0.875rem' }}
+                          placeholder={geminiApiKey ? "●●●●●●●● (Personal Key Saved)" : "Paste your personal Gemini API Key..."} 
+                          value={geminiApiKey}
+                          onChange={(e) => handleSaveGeminiKey(e.target.value)}
+                        />
+                        <button 
+                          type="button" 
+                          className="btn btn-secondary" 
+                          style={{ padding: '8px 12px' }}
+                          onClick={() => setShowGeminiKey(!showGeminiKey)}
+                        >
+                          {showGeminiKey ? "👁️" : "🙈"}
+                        </button>
+                        {geminiApiKey && (
+                          <button 
+                            type="button" 
+                            className="btn btn-danger" 
+                            style={{ padding: '8px 12px' }}
+                            onClick={() => handleSaveGeminiKey('')}
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
                     </div>
 
-                    <button className="btn" style={{ padding: '14px 28px', fontSize: '1.05rem' }} onClick={handleAISuggestSorting}>
-                      🔍 Analyze & Suggest Layout
-                    </button>
+                    {/* AI Passcode input block */}
+                    <div style={{
+                      background: 'rgba(0,0,0,0.02)', border: '1px solid var(--panel-border)',
+                      padding: '16px 20px', borderRadius: '8px', maxWidth: '600px', marginBottom: '1.5rem'
+                    }}>
+                      <h4 style={{ margin: '0 0 5px 0', fontSize: '0.925rem' }}>
+                        🔒 AI Organizer Security Passcode
+                      </h4>
+                      <p style={{ margin: '0 0 12px 0', fontSize: '0.785rem', color: 'var(--text-secondary)' }}>
+                        If a passcode gate is configured on the backend, please enter the passcode below to verify your authorization.
+                      </p>
+                      <input 
+                        type="password" 
+                        className="form-input" 
+                        style={{ padding: '8px 12px', fontSize: '0.875rem' }} 
+                        placeholder="Enter AI organizer passcode..." 
+                        value={aiPasscode} 
+                        onChange={e => setAiPasscode(e.target.value)} 
+                      />
+                    </div>
                   </div>
-                )}
 
-                {aiLoading && (
-                  <div style={{ textAlign: 'center', padding: '50px' }}>
-                    <div style={{ fontSize: '3.5rem', animation: 'spin 1.2s infinite linear' }}>✨</div>
-                    <h3 style={{ marginTop: '20px' }}>AI is organizing your channel lists...</h3>
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Analyzing channels. This takes a few seconds.</p>
-                  </div>
-                )}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', alignItems: 'center', justifyContent: 'center', minHeight: '300px' }}>
+                    {!aiLoading && !aiSortingSuggestions && (
+                      <div style={{ textAlign: 'center', padding: '20px' }}>
+                        <div style={{ fontSize: '4.5rem', marginBottom: '20px' }}>📁✨</div>
+                        <h3 style={{ marginBottom: '10px' }}>Organize Server Instantly</h3>
+                        <p style={{ color: 'var(--text-secondary)', marginBottom: '20px', maxWidth: '500px', margin: '0 auto 20px auto' }}>
+                          Analyze existing channels, re-arrange them neatly, and choose whether to generate missing recommended channels.
+                        </p>
+                        
+                        {/* Auto Emoji toggle */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '30px' }}>
+                          <label className="switch" style={{ width: '40px', height: '22px' }}>
+                            <input type="checkbox" checked={aiAutoEmoji} onChange={(e) => setAiAutoEmoji(e.target.checked)} />
+                            <span className="slider"></span>
+                          </label>
+                          <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                            ✨ AI Suggest relevant Emojis for Channel Names
+                          </span>
+                        </div>
 
-                {!aiLoading && aiSortingSuggestions && (
-                  <div style={{ width: '100%' }}>
-                    {aiNote && (
-                      <div style={{
-                        background: 'var(--accent-yellow-bg)', color: 'var(--accent-yellow)',
-                        border: '1px solid rgba(217, 119, 6, 0.2)', padding: '10px 15px',
-                        borderRadius: '8px', marginBottom: '1.5rem', fontSize: '0.85rem', fontWeight: 600
-                      }}>
-                        ⚠️ {aiNote}
+                        <button className="btn" style={{ padding: '14px 28px', fontSize: '1.05rem' }} onClick={handleAISuggestSorting}>
+                          🔍 Analyze & Suggest Layout
+                        </button>
                       </div>
                     )}
 
-                    <h3 style={{ marginBottom: '20px', borderBottom: '1px solid var(--panel-border)', paddingBottom: '10px' }}>
-                      📋 Proposed Sorted Channel Layout
-                    </h3>
+                    {aiLoading && (
+                      <div style={{ textAlign: 'center', padding: '50px' }}>
+                        <div style={{ fontSize: '3.5rem', animation: 'spin 1.2s infinite linear' }}>✨</div>
+                        <h3 style={{ marginTop: '20px' }}>AI is organizing your channel lists...</h3>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Analyzing channels. This takes a few seconds.</p>
+                      </div>
+                    )}
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px', marginBottom: '2rem' }}>
-                      {aiSortingSuggestions.categories.map((group, idx) => (
-                        <div key={idx} style={{
-                          background: 'var(--bg-color)', border: '1px solid var(--panel-border)',
-                          padding: '20px', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
+                    {!aiLoading && aiSortingSuggestions && (
+                      <div style={{ width: '100%' }}>
+                        {aiNote && (
+                          <div style={{
+                            background: 'var(--accent-yellow-bg)', color: 'var(--accent-yellow)',
+                            border: '1px solid rgba(217, 119, 6, 0.2)', padding: '10px 15px',
+                            borderRadius: '8px', marginBottom: '1.5rem', fontSize: '0.85rem', fontWeight: 600
+                          }}>
+                            ⚠️ {aiNote}
+                          </div>
+                        )}
+
+                        <h3 style={{ marginBottom: '20px', borderBottom: '1px solid var(--panel-border)', paddingBottom: '10px' }}>
+                          📋 Proposed Sorted Channel Layout
+                        </h3>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px', marginBottom: '2rem' }}>
+                          {aiSortingSuggestions.categories.map((group, idx) => (
+                            <div key={idx} style={{
+                              background: 'var(--bg-color)', border: '1px solid var(--panel-border)',
+                              padding: '20px', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
+                            }}>
+                              <h4 style={{ color: 'var(--text-primary)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700 }}>
+                                📁 {group.category}
+                              </h4>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                {group.channels.map(chObj => {
+                                  const isNew = chObj.isNew;
+                                  return (
+                                    <div key={chObj.id} style={{
+                                      background: isNew ? 'rgba(16, 185, 129, 0.08)' : 'var(--panel-bg)',
+                                      border: isNew ? '1px dashed var(--accent-green)' : '1px solid var(--panel-border)',
+                                      padding: '8px 12px', borderRadius: '6px', fontSize: '0.9rem', 
+                                      color: isNew ? 'var(--accent-green)' : 'var(--text-secondary)',
+                                      fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                                    }}>
+                                      <span>
+                                        {chObj.type === 2 ? `🔊 ${chObj.name}` : `# ${chObj.name}`}
+                                      </span>
+                                      {isNew && (
+                                        <span className="pill green" style={{ fontSize: '0.65rem', padding: '2px 6px', textTransform: 'uppercase' }}>
+                                          Recommended New
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* AI Configuration cleaning controls */}
+                        <div style={{
+                          display: 'flex', flexDirection: 'column', gap: '10px', background: 'var(--panel-bg)',
+                          border: '1px solid var(--panel-border)', padding: '16px 20px', borderRadius: '8px',
+                          marginBottom: '20px', width: 'fit-content'
                         }}>
-                          <h4 style={{ color: 'var(--text-primary)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700 }}>
-                            📁 {group.category}
-                          </h4>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {group.channels.map(chObj => {
-                              const isNew = chObj.isNew;
-                              return (
-                                <div key={chObj.id} style={{
-                                  background: isNew ? 'rgba(16, 185, 129, 0.08)' : 'var(--panel-bg)',
-                                  border: isNew ? '1px dashed var(--accent-green)' : '1px solid var(--panel-border)',
-                                  padding: '8px 12px', borderRadius: '6px', fontSize: '0.9rem', 
-                                  color: isNew ? 'var(--accent-green)' : 'var(--text-secondary)',
-                                  fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-                                }}>
-                                  <span>
-                                    {chObj.type === 2 ? `🔊 ${chObj.name}` : `# ${chObj.name}`}
-                                  </span>
-                                  {isNew && (
-                                    <span className="pill green" style={{ fontSize: '0.65rem', padding: '2px 6px', textTransform: 'uppercase' }}>
-                                      Recommended New
-                                    </span>
-                                  )}
-                                </div>
-                              );
-                            })}
+                          <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <label className="switch" style={{ width: '40px', height: '22px' }}>
+                              <input type="checkbox" checked={cleanLeftovers} onChange={(e) => setCleanLeftovers(e.target.checked)} />
+                              <span className="slider"></span>
+                            </label>
+                            <span style={{ fontSize: '0.875rem', fontWeight: 600, marginLeft: '12px', color: 'var(--text-primary)' }}>
+                              🧹 Delete empty leftover categories after sorting (Keep server clean)
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <label className="switch" style={{ width: '40px', height: '22px' }}>
+                              <input type="checkbox" checked={removeDuplicates} onChange={(e) => setRemoveDuplicates(e.target.checked)} />
+                              <span className="slider"></span>
+                            </label>
+                            <span style={{ fontSize: '0.875rem', fontWeight: 600, marginLeft: '12px', color: 'var(--text-primary)' }}>
+                              🗑️ Scan & delete duplicate channels (Keep oldest version)
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <label className="switch" style={{ width: '40px', height: '22px' }}>
+                              <input type="checkbox" checked={createMissing} onChange={(e) => setCreateMissing(e.target.checked)} />
+                              <span className="slider"></span>
+                            </label>
+                            <span style={{ fontSize: '0.875rem', fontWeight: 600, marginLeft: '12px', color: 'var(--text-primary)' }}>
+                              💡 Create recommended new channels suggested by AI (Generator)
+                            </span>
                           </div>
                         </div>
+
+                        <div style={{ display: 'flex', gap: '12px' }}>
+                          <button className="btn" onClick={handleAIApplySorting} disabled={aiBuilding}>
+                            {aiBuilding ? '🔨 Sorting server...' : '🔨 Apply AI Re-organization'}
+                          </button>
+                          <button className="btn btn-secondary" onClick={() => setAiSortingSuggestions(null)}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {aiUndoAvailable && !aiSortingSuggestions && (
+                      <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--panel-border)' }}>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '10px' }}>
+                          Last AI organization can be reverted. Messages and changes made after it will not be modified.
+                        </p>
+                        <button className="btn btn-secondary" onClick={handleAIUndoSorting} disabled={aiBuilding}>Undo last AI organization</button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {aiSubTab === 'chatbot' && (
+                <div className="glass-panel" style={{ maxWidth: '750px', margin: '0 auto' }}>
+                  <h2 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--panel-border)', paddingBottom: '8px' }}>
+                    🤖 Auto AI Chatbot Settings
+                  </h2>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+                    Configure a smart AI chatbot that chats with server members, answers queries, and replies automatically in Hindi/Hinglish (using Gemini).
+                  </p>
+
+                  <div className="form-group" style={{ marginBottom: '20px' }}>
+                    <div className="toggle-wrapper">
+                      <div className="toggle-label-desc">
+                        <h4>Enable AI Chatbot</h4>
+                        <p>Turn on the chatbot to reply to server messages automatically.</p>
+                      </div>
+                      <label className="switch">
+                        <input
+                          type="checkbox"
+                          checked={aiChatEnabled}
+                          onChange={e => setAiChatEnabled(e.target.checked)}
+                        />
+                        <span className="slider"></span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '20px' }}>
+                    <div className="toggle-wrapper">
+                      <div className="toggle-label-desc">
+                        <h4>Reply on @Mention</h4>
+                        <p>Allow the bot to respond when someone mentions/pings it in ANY text channel.</p>
+                      </div>
+                      <label className="switch">
+                        <input
+                          type="checkbox"
+                          disabled={!aiChatEnabled}
+                          checked={aiChatReplyOnMention}
+                          onChange={e => setAiChatReplyOnMention(e.target.checked)}
+                        />
+                        <span className="slider"></span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Dedicated AI Chat Channel (Optional)</label>
+                    <select
+                      className="form-select"
+                      disabled={!aiChatEnabled}
+                      value={aiChatChannelId}
+                      onChange={e => setAiChatChannelId(e.target.value)}
+                    >
+                      <option value="">-- No Dedicated Channel (Mentions Only) --</option>
+                      {channels.filter(ch => ch.type !== 2).map(ch => (
+                        <option key={ch.id} value={ch.id}>#{ch.name}</option>
                       ))}
-                    </div>
-
-                    {/* AI Configuration cleaning controls */}
-                    <div style={{
-                      display: 'flex', flexDirection: 'column', gap: '10px', background: 'var(--panel-bg)',
-                      border: '1px solid var(--panel-border)', padding: '16px 20px', borderRadius: '8px',
-                      marginBottom: '20px', width: 'fit-content'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center' }}>
-                        <label className="switch" style={{ width: '40px', height: '22px' }}>
-                          <input type="checkbox" checked={cleanLeftovers} onChange={(e) => setCleanLeftovers(e.target.checked)} />
-                          <span className="slider"></span>
-                        </label>
-                        <span style={{ fontSize: '0.875rem', fontWeight: 600, marginLeft: '12px', color: 'var(--text-primary)' }}>
-                          🧹 Delete empty leftover categories after sorting (Keep server clean)
-                        </span>
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center' }}>
-                        <label className="switch" style={{ width: '40px', height: '22px' }}>
-                          <input type="checkbox" checked={removeDuplicates} onChange={(e) => setRemoveDuplicates(e.target.checked)} />
-                          <span className="slider"></span>
-                        </label>
-                        <span style={{ fontSize: '0.875rem', fontWeight: 600, marginLeft: '12px', color: 'var(--text-primary)' }}>
-                          🗑️ Scan & delete duplicate channels (Keep oldest version)
-                        </span>
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center' }}>
-                        <label className="switch" style={{ width: '40px', height: '22px' }}>
-                          <input type="checkbox" checked={createMissing} onChange={(e) => setCreateMissing(e.target.checked)} />
-                          <span className="slider"></span>
-                        </label>
-                        <span style={{ fontSize: '0.875rem', fontWeight: 600, marginLeft: '12px', color: 'var(--text-primary)' }}>
-                          💡 Create recommended new channels suggested by AI (Generator)
-                        </span>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                      <button className="btn" onClick={handleAIApplySorting} disabled={aiBuilding}>
-                        {aiBuilding ? '🔨 Sorting server...' : '🔨 Apply AI Re-organization'}
-                      </button>
-                      <button className="btn btn-secondary" onClick={() => setAiSortingSuggestions(null)}>
-                        Cancel
-                      </button>
-                    </div>
+                    </select>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      Select a channel where the bot will reply to EVERY message sent (e.g. #chat-with-ai).
+                    </span>
                   </div>
-                )}
-                {aiUndoAvailable && !aiSortingSuggestions && (
-                  <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--panel-border)' }}>
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '10px' }}>
-                      Last AI organization can be reverted. Messages and changes made after it will not be modified.
-                    </p>
-                    <button className="btn btn-secondary" onClick={handleAIUndoSorting} disabled={aiBuilding}>Undo last AI organization</button>
+
+                  <div className="form-group" style={{ marginTop: '20px' }}>
+                    <label>AI Instructions & Personality Prompt</label>
+                    <textarea
+                      className="form-textarea"
+                      disabled={!aiChatEnabled}
+                      rows={5}
+                      value={aiChatInstructions}
+                      onChange={e => setAiChatInstructions(e.target.value)}
+                      placeholder="e.g. You are a helpful assistant. Always reply in Hindi or Hinglish..."
+                    />
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      Specify the chatbot behavior, language, and styling here. E.g. "Hinglish mein answer do, and keep it extremely funny."
+                    </span>
                   </div>
-                )}
-              </div>
+
+                  <button
+                    className="btn btn-primary"
+                    disabled={aiChatSaving}
+                    onClick={saveAiChatSettings}
+                    style={{ width: '100%', justifyContent: 'center', marginTop: '1.5rem', padding: '12px' }}
+                  >
+                    {aiChatSaving ? 'Saving...' : '💾 Save AI Chatbot Settings'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

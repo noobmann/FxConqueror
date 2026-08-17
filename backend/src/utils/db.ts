@@ -63,6 +63,31 @@ export interface VerificationSettings {
   embedColor: string;
 }
 
+export interface ButtonRole {
+  roleId: string;
+  label: string;
+  emoji?: string;
+  style: string;
+}
+
+export interface ButtonRolePanel {
+  id: string;
+  name: string;
+  channelId: string;
+  embedTitle: string;
+  embedDescription: string;
+  embedColor: string;
+  buttons: ButtonRole[];
+}
+
+export interface AiChatSettings {
+  enabled: boolean;
+  channelId: string;
+  replyOnMention: boolean;
+  instructions: string;
+}
+
+
 export interface ScheduledMessage {
   id: string;
   channelId: string;
@@ -103,6 +128,8 @@ export interface DatabaseSchema {
   verificationSettings?: VerificationSettings;
   scheduledMessages: ScheduledMessage[];
   moderationLogs: ModerationLog[];
+  buttonRolePanels: ButtonRolePanel[];
+  aiChatSettings?: AiChatSettings;
 }
 
 const DB_PATH = path.join(__dirname, '../../database.json');
@@ -153,7 +180,14 @@ const defaultDb: DatabaseSchema = {
     embedDescription: 'Click the button below to verify yourself and gain access to the server!',
     embedColor: '#00d26a'
   },
-  moderationLogs: []
+  moderationLogs: [],
+  buttonRolePanels: [],
+  aiChatSettings: {
+    enabled: false,
+    channelId: '',
+    replyOnMention: true,
+    instructions: 'You are a helpful Discord server assistant. Always reply in Hindi or Hinglish. Keep your responses short, natural, and helpful.'
+  }
 };
 
 let dbMemory: DatabaseSchema = defaultDb;

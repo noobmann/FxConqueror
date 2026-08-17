@@ -1428,6 +1428,19 @@ router.post('/settings/verification', (req: Request, res: Response) => {
   res.json({ message: 'Verification settings saved', settings: db });
 });
 
+router.post('/settings/ai-chatbot', (req: Request, res: Response) => {
+  const { enabled, channelId, replyOnMention, instructions } = req.body;
+  if (typeof enabled !== 'boolean' || typeof replyOnMention !== 'boolean') {
+    return res.status(400).json({ error: 'Invalid AI Chatbot configuration parameters' });
+  }
+
+  const db = getDb();
+  db.aiChatSettings = { enabled, channelId, replyOnMention, instructions: instructions || '' };
+  saveDb(db);
+  addLog(`AI Chatbot settings updated (Enabled: ${enabled})`, 'info');
+  res.json({ message: 'AI Chatbot settings saved successfully!', settings: db });
+});
+
 router.post('/verification/send', async (req: Request, res: Response) => {
   const db = getDb();
   const vs = db.verificationSettings;
@@ -1462,7 +1475,201 @@ router.post('/verification/send', async (req: Request, res: Response) => {
     res.json({ message: 'Verification embed posted successfully!' });
   } catch (err: any) {
     addLog(`Failed to send verification embed: ${err.message}`, 'error');
-    res.status(500).json({ error: `Failed: ${err.message}` });
+    res.status(500).json({ error: `Failed to send verification embed: ${err.message}` });
+  }
+});
+
+// ----------------------------------------------------
+// BUTTON ROLE PANELS SYSTEM ROUTES
+// ----------------------------------------------------
+router.get('/settings/button-panels', (req: Request, res: Response) => {
+  const db = getDb();
+  res.json(db.buttonRolePanels || []);
+});
+
+router.post('/settings/button-panels', (req: Request, res: Response) => {
+  const { panels } = req.body;
+  if (!Array.isArray(panels)) {
+    return res.status(400).json({ error: 'Invalid panels data' });
+  }
+  const db = getDb();
+  db.buttonRolePanels = panels;
+  saveDb(db);
+  res.json({ message: 'Button panels saved successfully', settings: db });
+});
+
+router.post('/button-panels/send', async (req: Request, res: Response) => {
+  const { id, name, channelId, embedTitle, embedDescription, embedColor, buttons } = req.body;
+  if (!channelId || !buttons || !Array.isArray(buttons) || buttons.length === 0) {
+    return res.status(400).json({ error: 'Channel and at least one button are required' });
+  }
+
+  const guild = getGuild((req as any).guildId);
+  if (!guild) return res.status(404).json({ error: 'Guild not connected' });
+
+  try {
+    const channel = await guild.channels.fetch(channelId);
+    if (!channel || !channel.isTextBased()) {
+      return res.status(404).json({ error: 'Target channel not found or not text-based' });
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle(embedTitle || '🎭 Self-Assign Roles')
+      .setDescription(embedDescription || 'Click the buttons below to assign/remove roles!')
+      .setColor(parseInt(embedColor?.replace('#', '') || '1687ff', 16))
+      .setTimestamp();
+
+    const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+    let currentRow = new ActionRowBuilder<ButtonBuilder>();
+
+    for (let i = 0; i < buttons.length; i++) {
+      if (i > 0 && i % 5 === 0) {
+        rows.push(currentRow);
+        currentRow = new ActionRowBuilder<ButtonBuilder>();
+      }
+
+      const btn = buttons[i];
+      const buttonStyleMap = {
+        Primary: ButtonStyle.Primary,
+        Secondary: ButtonStyle.Secondary,
+        Success: ButtonStyle.Success,
+        Danger: ButtonStyle.Danger
+      };
+      
+      const style = buttonStyleMap[btn.style as keyof typeof buttonStyleMap] || ButtonStyle.Primary;
+
+      const button = new ButtonBuilder()
+        .setCustomId(`btnrole:${btn.roleId}`)
+        .setLabel(btn.label)
+        .setStyle(style);
+
+      if (btn.emoji) {
+        button.setEmoji(btn.emoji);
+      }
+
+      currentRow.addComponents(button);
+    }
+
+    if (currentRow.components.length > 0) {
+      rows.push(currentRow);
+    }
+
+    await (channel as any).send({ embeds: [embed], components: rows });
+    addLog(`Sent button roles panel "${name}" to #${(channel as any).name}`, 'info');
+
+    // Save panel setup in DB
+    const db = getDb();
+    if (!db.buttonRolePanels) db.buttonRolePanels = [];
+    const idx = db.buttonRolePanels.findIndex(p => p.id === id);
+    const newPanel = { id, name, channelId, embedTitle, embedDescription, embedColor, buttons };
+    
+    if (idx > -1) {
+      db.buttonRolePanels[idx] = newPanel;
+    } else {
+      db.buttonRolePanels.push(newPanel);
+    }
+    
+    saveDb(db);
+    res.json({ message: 'Button roles panel sent successfully!', settings: db });
+  } catch (err: any) {
+    addLog(`Failed to send button roles panel: ${err.message}`, 'error');
+    res.status(500).json({ error: `Failed to send button roles panel: ${err.message}` });
+  }
+});
+
+// ----------------------------------------------------
+// CHANNEL VISIBILITY/PERMISSION ROUTES
+// ----------------------------------------------------
+router.get('/guild/channels/:channelId/permissions', async (req: Request, res: Response) => {
+  const guild = getGuild((req as any).guildId);
+  if (!guild) return res.status(404).json({ error: 'Guild not connected' });
+
+  const { channelId } = req.params;
+  try {
+    const channel = await guild.channels.fetch(channelId);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+    const chan = channel as any;
+    if (!chan.permissionOverwrites) {
+      return res.status(400).json({ error: 'This channel type does not support permission overwrites' });
+    }
+
+    const overwrites = chan.permissionOverwrites.cache;
+    const everyoneOverwrite = overwrites.get(guild.id);
+    const isPrivate = everyoneOverwrite ? everyoneOverwrite.deny.has(PermissionsBitField.Flags.ViewChannel) : false;
+
+    const allowedRoles: string[] = [];
+    for (const [id, overwrite] of overwrites) {
+      if (overwrite.type === 0 && id !== guild.id) {
+        if (overwrite.allow.has(PermissionsBitField.Flags.ViewChannel)) {
+          allowedRoles.push(id);
+        }
+      }
+    }
+
+    res.json({ channelId, isPrivate, allowedRoles });
+  } catch (err: any) {
+    addLog(`Failed to fetch channel permissions: ${err.message}`, 'error');
+    res.status(500).json({ error: `Failed to fetch permissions: ${err.message}` });
+  }
+});
+
+router.post('/guild/channels/:channelId/permissions', async (req: Request, res: Response) => {
+  const guild = getGuild((req as any).guildId);
+  if (!guild) return res.status(404).json({ error: 'Guild not connected' });
+
+  const { channelId } = req.params;
+  const { isPrivate, allowedRoles } = req.body;
+
+  if (typeof isPrivate !== 'boolean' || !Array.isArray(allowedRoles)) {
+    return res.status(400).json({ error: 'Invalid permissions body' });
+  }
+
+  try {
+    const channel = await guild.channels.fetch(channelId);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+    const chan = channel as any;
+    if (!chan.permissionOverwrites) {
+      return res.status(400).json({ error: 'This channel type does not support permission overwrites' });
+    }
+
+    // 1. Toggle @everyone
+    if (isPrivate) {
+      await chan.permissionOverwrites.edit(guild.id, {
+        ViewChannel: false
+      });
+    } else {
+      await chan.permissionOverwrites.edit(guild.id, {
+        ViewChannel: null
+      });
+    }
+
+    const overwrites = chan.permissionOverwrites.cache;
+
+    // 2. Allow selected roles
+    for (const roleId of allowedRoles) {
+      await chan.permissionOverwrites.edit(roleId, {
+        ViewChannel: true
+      });
+    }
+
+    // 3. Reset roles no longer explicitly allowed
+    for (const [id, overwrite] of overwrites) {
+      if (overwrite.type === 0 && id !== guild.id) {
+        if (!allowedRoles.includes(id) && overwrite.allow.has(PermissionsBitField.Flags.ViewChannel)) {
+          await chan.permissionOverwrites.edit(id, {
+            ViewChannel: null
+          });
+        }
+      }
+    }
+
+    addLog(`Updated permissions for #${chan.name}: private=${isPrivate}, allowedRoles=${allowedRoles.length}`, 'info');
+    res.json({ message: 'Permissions updated successfully!' });
+  } catch (err: any) {
+    addLog(`Failed to update channel permissions: ${err.message}`, 'error');
+    res.status(500).json({ error: `Failed to update permissions: ${err.message}` });
   }
 });
 
