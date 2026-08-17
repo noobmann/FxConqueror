@@ -633,7 +633,8 @@ client.on('messageCreate', async (message) => {
                   }
                 ],
                 temperature: 0.9,
-                max_tokens: 150
+                max_tokens: 150,
+                max_completion_tokens: 150
               })
             });
 
