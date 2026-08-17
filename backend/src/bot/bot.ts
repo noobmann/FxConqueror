@@ -590,20 +590,6 @@ client.on('messageCreate', async (message) => {
     
     if (isTargetChannel || (aiSettings.replyOnMention && isMentioned)) {
       try {
-        const rawApiKey = db.credentials?.geminiApiKey || process.env.GEMINI_API_KEY || '';
-        const apiKey = getRandomApiKey(rawApiKey);
-        if (!apiKey) {
-          addLog('AI Chat failed: No Gemini API Key configured.', 'error');
-          return;
-        }
-
-        // Show typing indicator in the channel
-        await message.channel.sendTyping();
-
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const modelName = aiSettings.modelName || 'gemini-2.5-flash';
-        const model = genAI.getGenerativeModel({ model: modelName });
-        
         let cleanContent = message.content;
         if (client.user) {
           // Remove the bot mention from the prompt content
@@ -611,20 +597,78 @@ client.on('messageCreate', async (message) => {
         }
 
         if (cleanContent.length > 0) {
+          // Show typing indicator in the channel
+          await message.channel.sendTyping();
+
           const systemPrompt = aiSettings.instructions || "You are a helpful assistant. Always reply in Hindi or Hinglish. Keep it friendly and concise.";
-          
-          const finalPrompt = `System Instructions: ${systemPrompt}
-          
+          let replyText = '';
+          const provider = aiSettings.provider || 'gemini';
+
+          if (provider === 'groq') {
+            const rawGroqKey = aiSettings.groqApiKey || process.env.GROQ_API_KEY || '';
+            const groqKey = getRandomApiKey(rawGroqKey);
+            if (!groqKey) {
+              addLog('AI Chat failed: No Groq API Key configured.', 'error');
+              return;
+            }
+
+            const modelName = aiSettings.modelName || 'llama-3.3-70b-versatile';
+
+            const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${groqKey}`
+              },
+              body: JSON.stringify({
+                model: modelName,
+                messages: [
+                  {
+                    role: 'system',
+                    content: systemPrompt
+                  },
+                  {
+                    role: 'user',
+                    content: `User @${message.author.username} says: ${cleanContent}`
+                  }
+                ],
+                temperature: 0.7
+              })
+            });
+
+            if (!response.ok) {
+              const errBody = await response.text();
+              throw new Error(`Groq API error (HTTP ${response.status}): ${errBody}`);
+            }
+
+            const data = await response.json() as any;
+            replyText = data.choices?.[0]?.message?.content?.trim() || '';
+          } else {
+            // Gemini flow
+            const rawApiKey = db.credentials?.geminiApiKey || process.env.GEMINI_API_KEY || '';
+            const apiKey = getRandomApiKey(rawApiKey);
+            if (!apiKey) {
+              addLog('AI Chat failed: No Gemini API Key configured.', 'error');
+              return;
+            }
+
+            const genAI = new GoogleGenerativeAI(apiKey);
+            const modelName = aiSettings.modelName || 'gemini-2.5-flash';
+            const model = genAI.getGenerativeModel({ model: modelName });
+            
+            const finalPrompt = `System Instructions: ${systemPrompt}
+            
 User @${message.author.username} says: ${cleanContent}
-          
+            
 Response (keep it natural, directly address the user, do not write "System:" or "User:", just write the reply):`;
 
-          const result = await model.generateContent(finalPrompt);
-          const replyText = result.response.text().trim();
-          
+            const result = await model.generateContent(finalPrompt);
+            replyText = result.response.text().trim();
+          }
+
           if (replyText) {
             await message.reply(replyText);
-            addLog(`AI Chat reply sent to ${message.author.username} in #${(message.channel as any).name}`, 'info');
+            addLog(`AI Chat reply sent via ${provider.toUpperCase()} to ${message.author.username} in #${(message.channel as any).name}`, 'info');
           }
         }
       } catch (err: any) {

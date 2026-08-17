@@ -270,6 +270,8 @@ const App: React.FC = () => {
     'You are a helpful Discord server assistant. Always reply in Hindi or Hinglish. Keep your responses short, natural, and helpful.'
   );
   const [aiChatModelName, setAiChatModelName] = useState<string>('gemini-2.5-flash');
+  const [aiChatProvider, setAiChatProvider] = useState<'gemini' | 'groq'>('gemini');
+  const [aiChatGroqApiKey, setAiChatGroqApiKey] = useState<string>('');
   const [aiChatSaving, setAiChatSaving] = useState<boolean>(false);
 
   // Button Panels States
@@ -468,6 +470,8 @@ const App: React.FC = () => {
         setAiChatReplyOnMention((statusData.settings as any).aiChatSettings.replyOnMention !== false);
         setAiChatInstructions((statusData.settings as any).aiChatSettings.instructions || '');
         setAiChatModelName((statusData.settings as any).aiChatSettings.modelName || 'gemini-2.5-flash');
+        setAiChatProvider((statusData.settings as any).aiChatSettings.provider || 'gemini');
+        setAiChatGroqApiKey((statusData.settings as any).aiChatSettings.groqApiKey || '');
       }
 
       if (statusData.guildId) {
@@ -1195,7 +1199,9 @@ const App: React.FC = () => {
       channelId: aiChatChannelId,
       replyOnMention: aiChatReplyOnMention,
       instructions: aiChatInstructions,
-      modelName: aiChatModelName
+      modelName: aiChatModelName,
+      provider: aiChatProvider,
+      groqApiKey: aiChatGroqApiKey
     }, 'AI Chatbot settings saved successfully!');
     setAiChatSaving(false);
   };
@@ -3110,21 +3116,82 @@ const App: React.FC = () => {
                   </div>
 
                   <div className="form-group" style={{ marginTop: '20px' }}>
-                    <label>Google Gemini AI Model</label>
+                    <label>AI Chatbot Provider</label>
                     <select
                       className="form-select"
                       disabled={!aiChatEnabled}
-                      value={aiChatModelName}
-                      onChange={e => setAiChatModelName(e.target.value)}
+                      value={aiChatProvider}
+                      onChange={e => {
+                        const p = e.target.value as 'gemini' | 'groq';
+                        setAiChatProvider(p);
+                        if (p === 'groq') {
+                          setAiChatModelName('llama-3.3-70b-versatile');
+                        } else {
+                          setAiChatModelName('gemini-2.5-flash');
+                        }
+                      }}
                     >
-                      <option value="gemini-2.5-flash">gemini-2.5-flash (Recommended - Fast & Free)</option>
-                      <option value="gemini-2.5-pro">gemini-2.5-pro (Deep Reasoning - Free with Limits)</option>
-                      <option value="gemini-1.5-flash">gemini-1.5-flash (Legacy Fast)</option>
+                      <option value="gemini">Google Gemini (Free/Permanent Free Tier)</option>
+                      <option value="groq">Groq Cloud Llama 3 (Ultra-Fast Free Developer Tier)</option>
                     </select>
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      Choose which Google Gemini model to drive the chatbot conversations.
+                      Choose the AI provider. Gemini is permanent free. Groq runs Llama 3 models at incredibly fast speeds.
                     </span>
                   </div>
+
+                  {aiChatProvider === 'gemini' ? (
+                    <div className="form-group" style={{ marginTop: '20px' }}>
+                      <label>Google Gemini AI Model</label>
+                      <select
+                        className="form-select"
+                        disabled={!aiChatEnabled}
+                        value={aiChatModelName}
+                        onChange={e => setAiChatModelName(e.target.value)}
+                      >
+                        <option value="gemini-2.5-flash">gemini-2.5-flash (Recommended - Fast & Free)</option>
+                        <option value="gemini-2.5-pro">gemini-2.5-pro (Deep Reasoning - Free with Limits)</option>
+                        <option value="gemini-1.5-flash">gemini-1.5-flash (Legacy Fast)</option>
+                      </select>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        Choose which Google Gemini model to drive the chatbot conversations.
+                      </span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="form-group" style={{ marginTop: '20px' }}>
+                        <label>Groq AI Model</label>
+                        <select
+                          className="form-select"
+                          disabled={!aiChatEnabled}
+                          value={aiChatModelName}
+                          onChange={e => setAiChatModelName(e.target.value)}
+                        >
+                          <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (Recommended - High IQ)</option>
+                          <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (Super Fast)</option>
+                          <option value="gemma2-9b-it">gemma2-9b-it (Google Gemma 2 9B)</option>
+                          <option value="mixtral-8x7b-32768">mixtral-8x7b-32768 (MoE Mixtral)</option>
+                        </select>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          Choose which open-source Llama or Gemma model on Groq to drive conversations.
+                        </span>
+                      </div>
+
+                      <div className="form-group" style={{ marginTop: '20px', background: 'rgba(6,182,212,0.03)', border: '1px solid rgba(6,182,212,0.1)', padding: '16px', borderRadius: '8px' }}>
+                        <label style={{ color: 'var(--accent-cyan)' }}>🔑 Groq API Key Input Pool</label>
+                        <input
+                          type="password"
+                          className="form-input"
+                          disabled={!aiChatEnabled}
+                          placeholder={aiChatGroqApiKey ? "●●●●●●●● (Groq API Key(s) Saved)" : "Paste your Groq API Key(s)..."}
+                          value={aiChatGroqApiKey}
+                          onChange={e => setAiChatGroqApiKey(e.target.value)}
+                        />
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginTop: '6px' }}>
+                          Aap apni free Groq key yahan daal sakte hain. Multiple keys ko commas se separate karke (jaise `key1, key2, key3`) paste karein taaki limits rotation setup ho jaye! Keys can be generated at <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" style={{ color: 'var(--accent-cyan)', textDecoration: 'underline' }}>console.groq.com/keys</a>.
+                        </span>
+                      </div>
+                    </>
+                  )}
 
                   <div className="form-group" style={{ marginTop: '20px' }}>
                     <label>AI Instructions & Personality Prompt</label>

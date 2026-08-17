@@ -1429,7 +1429,7 @@ router.post('/settings/verification', (req: Request, res: Response) => {
 });
 
 router.post('/settings/ai-chatbot', (req: Request, res: Response) => {
-  const { enabled, channelId, replyOnMention, instructions, modelName } = req.body;
+  const { enabled, channelId, replyOnMention, instructions, modelName, provider, groqApiKey } = req.body;
   if (typeof enabled !== 'boolean' || typeof replyOnMention !== 'boolean') {
     return res.status(400).json({ error: 'Invalid AI Chatbot configuration parameters' });
   }
@@ -1440,10 +1440,12 @@ router.post('/settings/ai-chatbot', (req: Request, res: Response) => {
     channelId, 
     replyOnMention, 
     instructions: instructions || '', 
-    modelName: modelName || 'gemini-2.5-flash' 
+    modelName: modelName || 'gemini-2.5-flash',
+    provider: provider || 'gemini',
+    groqApiKey: groqApiKey || ''
   };
   saveDb(db);
-  addLog(`AI Chatbot settings updated (Enabled: ${enabled}, Model: ${modelName})`, 'info');
+  addLog(`AI Chatbot settings updated (Enabled: ${enabled}, Provider: ${provider}, Model: ${modelName})`, 'info');
   res.json({ message: 'AI Chatbot settings saved successfully!', settings: db });
 });
 

@@ -86,6 +86,8 @@ export interface AiChatSettings {
   replyOnMention: boolean;
   instructions: string;
   modelName?: string;
+  provider?: 'gemini' | 'groq';
+  groqApiKey?: string;
 }
 
 
@@ -188,7 +190,9 @@ const defaultDb: DatabaseSchema = {
     channelId: '',
     replyOnMention: true,
     instructions: 'You are a helpful Discord server assistant. Always reply in Hindi or Hinglish. Keep your responses short, natural, and helpful.',
-    modelName: 'gemini-2.5-flash'
+    modelName: 'gemini-2.5-flash',
+    provider: 'gemini',
+    groqApiKey: ''
   }
 };
 
