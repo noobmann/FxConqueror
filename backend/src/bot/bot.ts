@@ -632,7 +632,7 @@ client.on('messageCreate', async (message) => {
                     content: `User @${message.author.username} says: ${cleanContent}`
                   }
                 ],
-                temperature: 0.7,
+                temperature: 0.9,
                 max_tokens: 150
               })
             });
