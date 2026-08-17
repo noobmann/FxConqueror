@@ -267,7 +267,7 @@ const App: React.FC = () => {
   const [aiChatChannelId, setAiChatChannelId] = useState<string>('');
   const [aiChatReplyOnMention, setAiChatReplyOnMention] = useState<boolean>(true);
   const [aiChatInstructions, setAiChatInstructions] = useState<string>(
-    'You are a helpful Discord server assistant. Always reply in Hindi or Hinglish. Keep your responses short, natural, and helpful.'
+    "You are a chilled-out, friendly Indian gaming/trading community member. Always reply in casual Hinglish/Hindi street style (like a close friend/brother). Keep your answers short (1-2 lines). Use words like 'bhai', 'yaar', 'bro', 'abey', 'saala', 'oyee'. Keep the tone extremely casual, funny, and full of brotherhood (bhaichara). Talk with a bit of attitude/banter if someone annoys you, but keep it within limits so safety filters don't trigger."
   );
   const [aiChatModelName, setAiChatModelName] = useState<string>('gemini-2.5-flash');
   const [aiChatProvider, setAiChatProvider] = useState<'gemini' | 'groq'>('gemini');

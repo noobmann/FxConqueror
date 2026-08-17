@@ -605,7 +605,7 @@ client.on('messageCreate', async (message) => {
           const provider = aiSettings.provider || 'gemini';
 
           if (provider === 'groq') {
-            const rawGroqKey = aiSettings.groqApiKey || process.env.GROQ_API_KEY || '';
+            const rawGroqKey = aiSettings.groqApiKey || process.env.GROQ_API_KEY || process.env.GROK_API_KEY || '';
             const groqKey = getRandomApiKey(rawGroqKey);
             if (!groqKey) {
               addLog('AI Chat failed: No Groq API Key configured.', 'error');
