@@ -85,6 +85,7 @@ export interface AiChatSettings {
   channelId: string;
   replyOnMention: boolean;
   instructions: string;
+  modelName?: string;
 }
 
 
@@ -186,7 +187,8 @@ const defaultDb: DatabaseSchema = {
     enabled: false,
     channelId: '',
     replyOnMention: true,
-    instructions: 'You are a helpful Discord server assistant. Always reply in Hindi or Hinglish. Keep your responses short, natural, and helpful.'
+    instructions: 'You are a helpful Discord server assistant. Always reply in Hindi or Hinglish. Keep your responses short, natural, and helpful.',
+    modelName: 'gemini-2.5-flash'
   }
 };
 
@@ -267,4 +269,11 @@ export function saveDb(data: DatabaseSchema): void {
       console.error('[DB] Failed to write local database.json:', err);
     }
   }
+}
+
+export function getRandomApiKey(rawKey: string): string {
+  if (!rawKey) return '';
+  const keys = rawKey.split(',').map(k => k.trim()).filter(k => k.length > 0);
+  if (keys.length === 0) return '';
+  return keys[Math.floor(Math.random() * keys.length)];
 }

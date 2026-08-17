@@ -269,6 +269,7 @@ const App: React.FC = () => {
   const [aiChatInstructions, setAiChatInstructions] = useState<string>(
     'You are a helpful Discord server assistant. Always reply in Hindi or Hinglish. Keep your responses short, natural, and helpful.'
   );
+  const [aiChatModelName, setAiChatModelName] = useState<string>('gemini-2.5-flash');
   const [aiChatSaving, setAiChatSaving] = useState<boolean>(false);
 
   // Button Panels States
@@ -466,6 +467,7 @@ const App: React.FC = () => {
         setAiChatChannelId((statusData.settings as any).aiChatSettings.channelId || '');
         setAiChatReplyOnMention((statusData.settings as any).aiChatSettings.replyOnMention !== false);
         setAiChatInstructions((statusData.settings as any).aiChatSettings.instructions || '');
+        setAiChatModelName((statusData.settings as any).aiChatSettings.modelName || 'gemini-2.5-flash');
       }
 
       if (statusData.guildId) {
@@ -1192,7 +1194,8 @@ const App: React.FC = () => {
       enabled: aiChatEnabled,
       channelId: aiChatChannelId,
       replyOnMention: aiChatReplyOnMention,
-      instructions: aiChatInstructions
+      instructions: aiChatInstructions,
+      modelName: aiChatModelName
     }, 'AI Chatbot settings saved successfully!');
     setAiChatSaving(false);
   };
@@ -2844,7 +2847,7 @@ const App: React.FC = () => {
                         🔑 Gemini API Key Configuration
                       </h4>
                       <p style={{ margin: '0 0 12px 0', fontSize: '0.785rem', color: 'var(--text-secondary)' }}>
-                        AI features (jaise automatic channel suggestions aur renames) ko utilize karne ke liye yahan apni personal Gemini API Key paste karein. Yeh key aapke browser me locally save rahegi.
+                        AI features ko utilize karne ke liye yahan apni personal Gemini API Key paste karein. Aap multiple keys ko commas se separate karke (jaise `key1, key2, key3`) bhi daal sakte hain taaki quota/limits divide ho sakein. Yeh keys locally save rahengi.
                       </p>
                       
                       <div style={{ display: 'flex', gap: '8px' }}>
@@ -3103,6 +3106,23 @@ const App: React.FC = () => {
                     </select>
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                       Select a channel where the bot will reply to EVERY message sent (e.g. #chat-with-ai).
+                    </span>
+                  </div>
+
+                  <div className="form-group" style={{ marginTop: '20px' }}>
+                    <label>Google Gemini AI Model</label>
+                    <select
+                      className="form-select"
+                      disabled={!aiChatEnabled}
+                      value={aiChatModelName}
+                      onChange={e => setAiChatModelName(e.target.value)}
+                    >
+                      <option value="gemini-2.5-flash">gemini-2.5-flash (Recommended - Fast & Free)</option>
+                      <option value="gemini-2.5-pro">gemini-2.5-pro (Deep Reasoning - Free with Limits)</option>
+                      <option value="gemini-1.5-flash">gemini-1.5-flash (Legacy Fast)</option>
+                    </select>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      Choose which Google Gemini model to drive the chatbot conversations.
                     </span>
                   </div>
 

@@ -11,7 +11,7 @@ import {
   ChatInputCommandInteraction,
   ChannelType
 } from 'discord.js';
-import { getDb, saveDb, XpRecord, WarningRecord } from '../utils/db';
+import { getDb, saveDb, XpRecord, WarningRecord, getRandomApiKey } from '../utils/db';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export interface LogEntry {
@@ -590,7 +590,8 @@ client.on('messageCreate', async (message) => {
     
     if (isTargetChannel || (aiSettings.replyOnMention && isMentioned)) {
       try {
-        const apiKey = db.credentials?.geminiApiKey || process.env.GEMINI_API_KEY;
+        const rawApiKey = db.credentials?.geminiApiKey || process.env.GEMINI_API_KEY || '';
+        const apiKey = getRandomApiKey(rawApiKey);
         if (!apiKey) {
           addLog('AI Chat failed: No Gemini API Key configured.', 'error');
           return;
@@ -600,7 +601,8 @@ client.on('messageCreate', async (message) => {
         await message.channel.sendTyping();
 
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+        const modelName = aiSettings.modelName || 'gemini-2.5-flash';
+        const model = genAI.getGenerativeModel({ model: modelName });
         
         let cleanContent = message.content;
         if (client.user) {

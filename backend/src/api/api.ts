@@ -1429,15 +1429,21 @@ router.post('/settings/verification', (req: Request, res: Response) => {
 });
 
 router.post('/settings/ai-chatbot', (req: Request, res: Response) => {
-  const { enabled, channelId, replyOnMention, instructions } = req.body;
+  const { enabled, channelId, replyOnMention, instructions, modelName } = req.body;
   if (typeof enabled !== 'boolean' || typeof replyOnMention !== 'boolean') {
     return res.status(400).json({ error: 'Invalid AI Chatbot configuration parameters' });
   }
 
   const db = getDb();
-  db.aiChatSettings = { enabled, channelId, replyOnMention, instructions: instructions || '' };
+  db.aiChatSettings = { 
+    enabled, 
+    channelId, 
+    replyOnMention, 
+    instructions: instructions || '', 
+    modelName: modelName || 'gemini-2.5-flash' 
+  };
   saveDb(db);
-  addLog(`AI Chatbot settings updated (Enabled: ${enabled})`, 'info');
+  addLog(`AI Chatbot settings updated (Enabled: ${enabled}, Model: ${modelName})`, 'info');
   res.json({ message: 'AI Chatbot settings saved successfully!', settings: db });
 });
 
