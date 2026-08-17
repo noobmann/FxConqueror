@@ -1660,38 +1660,6 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </div>
-
-              <div style={{ marginTop: '20px' }} className="glass-panel">
-                <h3 style={{ marginBottom: '10px' }}>🛡️ Moderation Action Logs</h3>
-                <div className="table-container">
-                  <table className="custom-table">
-                    <thead>
-                      <tr>
-                        <th>User</th>
-                        <th>Action</th>
-                        <th>Reason</th>
-                        <th>Timestamp</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {!botStatus?.settings?.moderationLogs || botStatus.settings.moderationLogs.length === 0 ? (
-                        <tr>
-                          <td colSpan={4} style={{ textAlign: 'center', padding: '16px', color: 'var(--text-muted)' }}>No logs recorded.</td>
-                        </tr>
-                      ) : (
-                        [...botStatus.settings.moderationLogs].reverse().slice(0, 15).map(log => (
-                          <tr key={log.id}>
-                            <td style={{ fontWeight: 600 }}>{log.userTag} <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>({log.userId})</span></td>
-                            <td><span className={`pill ${log.action === 'ban' ? 'red' : log.action === 'kick' ? 'orange' : 'yellow'}`}>{log.action.toUpperCase()}</span></td>
-                            <td>{log.reason}</td>
-                            <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{log.timestamp}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
             </div>
           )}
 
@@ -1767,6 +1735,38 @@ const App: React.FC = () => {
                     )}
                   </tbody>
                 </table>
+              </div>
+
+              <div style={{ marginTop: '30px', paddingTop: '20px', borderTop: '1px solid var(--panel-border)' }}>
+                <h3 style={{ marginBottom: '15px' }}>🛡️ Moderation Action Logs</h3>
+                <div className="table-container">
+                  <table className="custom-table">
+                    <thead>
+                      <tr>
+                        <th>User</th>
+                        <th>Action</th>
+                        <th>Reason</th>
+                        <th>Timestamp</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {!botStatus?.settings?.moderationLogs || botStatus.settings.moderationLogs.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} style={{ textAlign: 'center', padding: '16px', color: 'var(--text-muted)' }}>No logs recorded.</td>
+                        </tr>
+                      ) : (
+                        [...botStatus.settings.moderationLogs].reverse().slice(0, 15).map(log => (
+                          <tr key={log.id}>
+                            <td style={{ fontWeight: 600 }}>{log.userTag} <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>({log.userId})</span></td>
+                            <td><span className={`pill ${log.action === 'ban' ? 'red' : log.action === 'kick' ? 'orange' : 'yellow'}`}>{log.action.toUpperCase()}</span></td>
+                            <td>{log.reason}</td>
+                            <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{log.timestamp}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
