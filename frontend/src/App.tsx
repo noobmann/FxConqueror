@@ -524,17 +524,27 @@ const App: React.FC = () => {
         body: JSON.stringify(body)
       });
       
+      let errorMessage = 'Failed to save settings';
       if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || 'Failed to save settings');
+        const contentType = res.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const errData = await res.json();
+          errorMessage = errData.error || errorMessage;
+        } else {
+          errorMessage = `HTTP Error ${res.status}: Server returned an invalid response. Please verify if your backend deployment is online and updated.`;
+        }
+        throw new Error(errorMessage);
       }
 
       setSaveStatus({ type: 'success', msg: successMsg });
       setTimeout(() => setSaveStatus({ type: null, msg: null }), 3000);
       
-      const data = await res.json();
-      if (data.settings) {
-        setBotStatus(prev => prev ? { ...prev, settings: data.settings } : null);
+      const contentType = res.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data.settings) {
+          setBotStatus(prev => prev ? { ...prev, settings: data.settings } : null);
+        }
       }
     } catch (err: any) {
       setSaveStatus({ type: 'error', msg: err.message || 'An error occurred while saving.' });
@@ -1178,35 +1188,13 @@ const App: React.FC = () => {
 
   const saveAiChatSettings = async () => {
     setAiChatSaving(true);
-    try {
-      const res = await fetchAuth(`${API_BASE}/settings/ai-chatbot`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          enabled: aiChatEnabled,
-          channelId: aiChatChannelId,
-          replyOnMention: aiChatReplyOnMention,
-          instructions: aiChatInstructions
-        })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.settings && data.settings.aiChatSettings) {
-          setAiChatEnabled(data.settings.aiChatSettings.enabled || false);
-          setAiChatChannelId(data.settings.aiChatSettings.channelId || '');
-          setAiChatReplyOnMention(data.settings.aiChatSettings.replyOnMention !== false);
-          setAiChatInstructions(data.settings.aiChatSettings.instructions || '');
-        }
-        alert('✅ AI Chatbot settings updated successfully!');
-      } else {
-        const data = await res.json();
-        alert(`❌ Failed to update settings: ${data.error}`);
-      }
-    } catch (err: any) {
-      alert(`❌ Error saving settings: ${err.message}`);
-    } finally {
-      setAiChatSaving(false);
-    }
+    await handleSave(`${API_BASE}/settings/ai-chatbot`, {
+      enabled: aiChatEnabled,
+      channelId: aiChatChannelId,
+      replyOnMention: aiChatReplyOnMention,
+      instructions: aiChatInstructions
+    }, 'AI Chatbot settings saved successfully!');
+    setAiChatSaving(false);
   };
 
   // Local storage save for personal gemini API key
