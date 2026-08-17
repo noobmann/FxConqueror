@@ -3125,7 +3125,7 @@ const App: React.FC = () => {
                         const p = e.target.value as 'gemini' | 'groq';
                         setAiChatProvider(p);
                         if (p === 'groq') {
-                          setAiChatModelName('llama-3.3-70b-versatile');
+                          setAiChatModelName('groq/compound');
                         } else {
                           setAiChatModelName('gemini-2.5-flash');
                         }
@@ -3166,10 +3166,10 @@ const App: React.FC = () => {
                           value={aiChatModelName}
                           onChange={e => setAiChatModelName(e.target.value)}
                         >
-                          <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (Recommended - High IQ)</option>
-                          <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (Super Fast)</option>
-                          <option value="gemma2-9b-it">gemma2-9b-it (Google Gemma 2 9B)</option>
-                          <option value="mixtral-8x7b-32768">mixtral-8x7b-32768 (MoE Mixtral)</option>
+                          <option value="groq/compound">groq/compound (Recommended - High IQ)</option>
+                          <option value="groq/compound-mini">groq/compound-mini (Super Fast)</option>
+                          <option value="qwen/qwen3.6-27b">qwen/qwen3.6-27b (Qwen 27B)</option>
+                          <option value="openai/gpt-oss-20b">openai/gpt-oss-20b (GPT OSS 20B)</option>
                         </select>
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                           Choose which open-source Llama or Gemma model on Groq to drive conversations.

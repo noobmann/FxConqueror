@@ -612,7 +612,7 @@ client.on('messageCreate', async (message) => {
               return;
             }
 
-            const modelName = aiSettings.modelName || 'llama-3.3-70b-versatile';
+            const modelName = aiSettings.modelName || 'groq/compound';
 
             const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
               method: 'POST',
