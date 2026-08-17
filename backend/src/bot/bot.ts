@@ -667,7 +667,9 @@ Response (keep it natural, directly address the user, do not write "System:" or 
           }
 
           if (replyText) {
-            await message.reply(replyText);
+            // Safe guard against Discord's 2000 character limit per message
+            const safeReply = replyText.length > 1950 ? replyText.substring(0, 1950) + '...' : replyText;
+            await message.reply(safeReply);
             addLog(`AI Chat reply sent via ${provider.toUpperCase()} to ${message.author.username} in #${(message.channel as any).name}`, 'info');
           }
         }
