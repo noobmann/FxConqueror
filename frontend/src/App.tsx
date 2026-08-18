@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-// Database Schema Interfaces
+// Database Schema Interfaces - Vercel redeploy trigger
 interface WelcomeSettings {
   enabled: boolean;
   channelId: string;
