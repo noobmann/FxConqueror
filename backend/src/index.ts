@@ -3,6 +3,10 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import apiRouter from './api/api';
 import { client, addLog } from './bot/bot';
+import dns from 'dns';
+
+// Force Node.js to prefer IPv4 over IPv6 to prevent Discord gateway connection hangs on Render
+dns.setDefaultResultOrder('ipv4first');
 
 import { initDbConnection, getDb } from './utils/db';
 
