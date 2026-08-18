@@ -107,7 +107,7 @@ function getAdminAccounts() {
 }
 
 function authMiddleware(req: Request, res: Response, next: NextFunction) {
-  if (req.path === '/auth/login' || req.path === '/public/status' || req.path === '/' || req.path === '/health') {
+  if (req.path === '/auth/login' || req.path === '/public/status' || req.path === '/' || req.path === '/health' || req.path === '/public/test-discord-connection') {
     return next();
   }
 
@@ -197,7 +197,7 @@ router.get('/', (req: Request, res: Response) => {
   res.json({ status: 'online', message: 'Fx Conquerors backend service is awake' });
 });
 
-router.get('/test-discord-connection', async (req: Request, res: Response) => {
+router.get('/public/test-discord-connection', async (req: Request, res: Response) => {
   try {
     const response = await fetch('https://discord.com/api/v10/gateway', {
       headers: {
