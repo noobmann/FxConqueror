@@ -197,6 +197,21 @@ router.get('/', (req: Request, res: Response) => {
   res.json({ status: 'online', message: 'Fx Conquerors backend service is awake' });
 });
 
+router.get('/test-discord-connection', async (req: Request, res: Response) => {
+  try {
+    const response = await fetch('https://discord.com/api/v10/gateway', {
+      headers: {
+        'Authorization': `Bot ${process.env.DISCORD_TOKEN}`
+      }
+    });
+    const status = response.status;
+    const body = await response.text();
+    res.json({ success: true, status, body });
+  } catch (err: any) {
+    res.json({ success: false, error: err.message, stack: err.stack });
+  }
+});
+
 router.get('/health', (req: Request, res: Response) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
