@@ -51,6 +51,7 @@ async function bootstrap() {
   if (!activeToken) {
     addLog('DISCORD_TOKEN is missing in the env. Bot will not start!', 'error');
   } else {
+    addLog(`Attempting bot login with token prefix: ${activeToken.substring(0, 10)}... (length: ${activeToken.length})`, 'info');
     client.login(activeToken).catch((err) => {
       addLog(`Failed to login Discord Bot: ${err.message}`, 'error');
     });
