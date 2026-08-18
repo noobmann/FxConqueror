@@ -51,6 +51,15 @@ export const client = new Client({
   ]
 });
 
+// Enable detailed Discord debug/warn/error listeners to trace Render gateway issues
+client.on('debug', (info) => {
+  if (info.includes('Gateway') || info.includes('RateLimit') || info.includes('Session') || info.includes('connect') || info.includes('heartbeat')) {
+    addLog(`[Discord Debug] ${info}`, 'info');
+  }
+});
+client.on('error', (err) => addLog(`[Discord Error] ${err.message}`, 'error'));
+client.on('warn', (info) => addLog(`[Discord Warn] ${info}`, 'warn'));
+
 const slashCommands = [
   new SlashCommandBuilder().setName('help').setDescription('Show available bot commands'),
   new SlashCommandBuilder().setName('rank').setDescription('Show a member rank').addUserOption(option => option.setName('user').setDescription('Member to check')),
