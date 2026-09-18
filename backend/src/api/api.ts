@@ -150,6 +150,39 @@ function protectedRoleError(role: any): string | null {
   return null;
 }
 
+let lastMembersFetchTime = 0;
+const MEMBERS_FETCH_COOLDOWN = 5 * 60 * 1000; // 5 minutes cache cooldown
+
+async function ensureGuildMembers(guild: any) {
+  const now = Date.now();
+  // If members are already in cache and fetched recently, reuse cache
+  if (guild.members.cache.size > 1 && (now - lastMembersFetchTime < MEMBERS_FETCH_COOLDOWN)) {
+    return guild.members.cache;
+  }
+
+  try {
+    const fetched = await guild.members.fetch();
+    lastMembersFetchTime = Date.now();
+    return fetched;
+  } catch (err: any) {
+    addLog(`Gateway member fetch skipped or rate limited (${err.message}). Trying REST fallback...`, 'warn');
+    try {
+      let lastId: string | undefined = undefined;
+      while (true) {
+        const chunk: any = await guild.members.list({ limit: 1000, after: lastId });
+        if (!chunk || chunk.size === 0) break;
+        lastId = chunk.lastKey();
+        if (chunk.size < 1000) break;
+      }
+      lastMembersFetchTime = Date.now();
+      return guild.members.cache;
+    } catch (restErr: any) {
+      addLog(`REST member list fallback failed: ${restErr.message}. Using cache (${guild.members.cache.size} members).`, 'warn');
+      return guild.members.cache;
+    }
+  }
+}
+
 function hasValidAIPasscode(req: Request) {
   const required = process.env.AI_ORGANIZER_PASSCODE;
   return !required || req.body?.aiPasscode === required;
@@ -318,17 +351,115 @@ router.post('/roles/member', async (req: Request, res: Response) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+let roleReplacementStatus: {
+  inProgress: boolean;
+  total: number;
+  processed: number;
+  success: number;
+  failed: number;
+  fromRoleName?: string;
+  toRoleName?: string;
+  error?: string;
+} = {
+  inProgress: false,
+  total: 0,
+  processed: 0,
+  success: 0,
+  failed: 0
+};
+
+router.get('/roles/replace/status', (_req: Request, res: Response) => {
+  res.json(roleReplacementStatus);
+});
+
 router.post('/roles/replace', async (req: Request, res: Response) => {
   const guild = getGuild((req as any).guildId);
   if (!guild) return res.status(404).json({ error: 'Guild unavailable' });
+
+  if (roleReplacementStatus.inProgress) {
+    return res.status(409).json({ error: 'A role replacement is already in progress. Please wait for it to finish.' });
+  }
+
   try {
-    const from = await guild.roles.fetch(req.body.fromRoleId); const to = await guild.roles.fetch(req.body.toRoleId);
+    const from = await guild.roles.fetch(req.body.fromRoleId);
+    const to = await guild.roles.fetch(req.body.toRoleId);
     if (!from || !to || from.id === to.id) return res.status(400).json({ error: 'Select two different valid roles.' });
-    const blocked = protectedRoleError(from) || protectedRoleError(to); if (blocked) return res.status(403).json({ error: blocked });
-    const members = await guild.members.fetch(); let count = 0;
-    for (const member of members.values()) if (member.roles.cache.has(from.id)) { await member.roles.add(to); await member.roles.remove(from); count++; }
-    res.json({ message: `Replaced ${from.name} with ${to.name} for ${count} members.` });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+    const blocked = protectedRoleError(from) || protectedRoleError(to);
+    if (blocked) return res.status(403).json({ error: blocked });
+
+    await ensureGuildMembers(guild);
+
+    const targetMembers = guild.members.cache.filter((m: any) => m.roles.cache.has(from.id));
+    const totalCount = targetMembers.size;
+
+    if (totalCount === 0) {
+      return res.json({ message: `No members currently have the "${from.name}" role.` });
+    }
+
+    addLog(`[Role Replacer] Initiated replacement of "${from.name}" with "${to.name}" for ${totalCount} members.`, 'info');
+
+    roleReplacementStatus = {
+      inProgress: true,
+      total: totalCount,
+      processed: 0,
+      success: 0,
+      failed: 0,
+      fromRoleName: from.name,
+      toRoleName: to.name
+    };
+
+    res.json({
+      message: `Role replacement started for ${totalCount} members in the background. Check logs or progress bar.`,
+      inProgress: true,
+      total: totalCount
+    });
+
+    (async () => {
+      try {
+        for (const member of targetMembers.values()) {
+          try {
+            if (!member.manageable) {
+              roleReplacementStatus.failed++;
+              roleReplacementStatus.processed++;
+              continue;
+            }
+
+            const newRoles = member.roles.cache
+              .filter((r: any) => r.id !== from.id)
+              .map((r: any) => r.id);
+            if (!newRoles.includes(to.id)) {
+              newRoles.push(to.id);
+            }
+
+            await member.roles.set(newRoles, `Role replacement: ${from.name} -> ${to.name} via Dashboard`);
+            roleReplacementStatus.success++;
+          } catch (mErr: any) {
+            roleReplacementStatus.failed++;
+            addLog(`[Role Replacer] Member ${member.user?.tag || member.id} failed: ${mErr.message}`, 'warn');
+          } finally {
+            roleReplacementStatus.processed++;
+          }
+
+          // Throttle 120ms to avoid Discord REST rate limits
+          await new Promise(resolve => setTimeout(resolve, 120));
+
+          if (roleReplacementStatus.processed % 10 === 0 || roleReplacementStatus.processed === totalCount) {
+            addLog(`[Role Replacer] Progress: ${roleReplacementStatus.processed}/${totalCount} members processed (${roleReplacementStatus.success} updated, ${roleReplacementStatus.failed} skipped).`, 'info');
+          }
+        }
+
+        addLog(`[Role Replacer] Finished! Successfully replaced "${from.name}" with "${to.name}" for ${roleReplacementStatus.success} members (${roleReplacementStatus.failed} skipped).`, 'info');
+      } catch (bgErr: any) {
+        addLog(`[Role Replacer Error] Background task failed: ${bgErr.message}`, 'error');
+        roleReplacementStatus.error = bgErr.message;
+      } finally {
+        roleReplacementStatus.inProgress = false;
+      }
+    })();
+  } catch (err: any) {
+    roleReplacementStatus.inProgress = false;
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.post('/roles/delete', async (req: Request, res: Response) => {
@@ -525,25 +656,25 @@ router.get('/guild/members', async (req: Request, res: Response) => {
   const db = getDb();
 
   try {
-    const fetchedMembers = await guild.members.fetch();
-    const membersData = fetchedMembers.map(m => {
-      const xpRecord = db.xpData[m.id] || { xp: 0, level: 0, username: m.user.username };
+    const fetchedMembers = await ensureGuildMembers(guild);
+    const membersData = fetchedMembers.map((m: any) => {
+      const xpRecord = db.xpData[m.id] || { xp: 0, level: 0, username: m.user?.username || 'Unknown' };
       const userWarnings = db.warnings[m.id] || [];
       return {
         id: m.id,
-        username: m.user.username,
-        tag: m.user.tag,
-        avatar: m.user.displayAvatarURL() || null,
+        username: m.user?.username || 'Unknown',
+        tag: m.user?.tag || m.user?.username || 'Unknown',
+        avatar: m.user?.displayAvatarURL?.() || null,
         level: xpRecord.level,
         xp: xpRecord.xp,
         warnings: userWarnings,
         joinedAt: m.joinedAt?.toLocaleDateString() || 'Unknown',
         joinedAtTimestamp: m.joinedTimestamp || 0,
-        isAdmin: m.permissions.has(PermissionsBitField.Flags.Administrator)
+        isAdmin: Boolean(m.permissions?.has(PermissionsBitField.Flags.Administrator))
       };
     });
 
-    membersData.sort((a, b) => {
+    membersData.sort((a: any, b: any) => {
       if (b.level !== a.level) {
         return b.level - a.level;
       }
@@ -552,7 +683,23 @@ router.get('/guild/members', async (req: Request, res: Response) => {
 
     res.json(membersData);
   } catch (err: any) {
-    res.status(500).json({ error: `Failed to fetch members: ${err.message}` });
+    try {
+      const cached = guild.members.cache.map((m: any) => ({
+        id: m.id,
+        username: m.user?.username || 'Unknown',
+        tag: m.user?.tag || m.user?.username || 'Unknown',
+        avatar: m.user?.displayAvatarURL?.() || null,
+        level: db.xpData[m.id]?.level || 0,
+        xp: db.xpData[m.id]?.xp || 0,
+        warnings: db.warnings[m.id] || [],
+        joinedAt: m.joinedAt?.toLocaleDateString() || 'Unknown',
+        joinedAtTimestamp: m.joinedTimestamp || 0,
+        isAdmin: Boolean(m.permissions?.has(PermissionsBitField.Flags.Administrator))
+      }));
+      return res.json(cached);
+    } catch {
+      res.status(500).json({ error: `Failed to fetch members: ${err.message}` });
+    }
   }
 });
 

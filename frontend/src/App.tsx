@@ -253,6 +253,15 @@ const App: React.FC = () => {
   const [replaceFromRoleId, setReplaceFromRoleId] = useState<string>('');
   const [replaceRoleId, setReplaceRoleId] = useState<string>('');
   const [roleLoading, setRoleLoading] = useState<boolean>(false);
+  const [replaceProgress, setReplaceProgress] = useState<{
+    inProgress: boolean;
+    total: number;
+    processed: number;
+    success: number;
+    failed: number;
+    fromRoleName?: string;
+    toRoleName?: string;
+  } | null>(null);
   const [roleAdvice, setRoleAdvice] = useState<string>('');
   const [scheduledMessages, setScheduledMessages] = useState<ScheduledMessage[]>([]);
 
@@ -500,10 +509,9 @@ const App: React.FC = () => {
 
   const pollData = async () => {
     try {
-      const [statusRes, logsRes, membersRes] = await Promise.all([
+      const [statusRes, logsRes] = await Promise.all([
         fetchAuth(`${API_BASE}/status`),
-        fetchAuth(`${API_BASE}/logs`),
-        fetchAuth(`${API_BASE}/guild/members`)
+        fetchAuth(`${API_BASE}/logs`)
       ]);
       
       if (statusRes.ok) {
@@ -512,9 +520,6 @@ const App: React.FC = () => {
       }
       if (logsRes.ok) {
         setLogs(await logsRes.json());
-      }
-      if (membersRes.ok) {
-        setMembers(await membersRes.json());
       }
     } catch (err) {
       console.error('Polling error:', err);
@@ -797,10 +802,43 @@ const App: React.FC = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setSaveStatus({ type: 'success', msg: successMsg || data.message });
-      setTimeout(() => setSaveStatus({ type: null, msg: null }), 3000);
+      setTimeout(() => setSaveStatus({ type: null, msg: null }), 4000);
       const rolesRes = await fetchAuth(`${API_BASE}/guild/roles`);
       if (rolesRes.ok) setRoles(await rolesRes.json());
       pollData();
+
+      if (url === '/roles/replace' && data?.inProgress) {
+        setReplaceProgress({
+          inProgress: true,
+          total: data.total || 0,
+          processed: 0,
+          success: 0,
+          failed: 0,
+          fromRoleName: roles.find(r => r.id === body.fromRoleId)?.name,
+          toRoleName: roles.find(r => r.id === body.toRoleId)?.name
+        });
+
+        const statusInterval = setInterval(async () => {
+          try {
+            const stRes = await fetchAuth(`${API_BASE}/roles/replace/status`);
+            if (stRes.ok) {
+              const st = await stRes.json();
+              setReplaceProgress(st);
+              if (!st.inProgress) {
+                clearInterval(statusInterval);
+                const updatedRoles = await fetchAuth(`${API_BASE}/guild/roles`);
+                if (updatedRoles.ok) setRoles(await updatedRoles.json());
+                const updatedMembers = await fetchAuth(`${API_BASE}/guild/members`);
+                if (updatedMembers.ok) setMembers(await updatedMembers.json());
+                setTimeout(() => setReplaceProgress(null), 8000);
+              }
+            }
+          } catch {
+            clearInterval(statusInterval);
+          }
+        }, 1200);
+      }
+
       return data;
     } catch (err: any) {
       alert(`Role action failed: ${err.message}`);
@@ -2284,7 +2322,28 @@ const App: React.FC = () => {
                     <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '14px' }}>Every member with the old role will receive the new role, and the old role will be removed.</p>
                     <div className="form-group"><label>Old role to replace</label><select className="form-select" value={replaceFromRoleId} onChange={e => setReplaceFromRoleId(e.target.value)}><option value="">-- Select old role --</option>{roles.map(role => <option key={role.id} value={role.id}>{role.name} ({role.memberCount} members)</option>)}</select></div>
                     <div className="form-group"><label>New replacement role</label><select className="form-select" value={replaceRoleId} onChange={e => setReplaceRoleId(e.target.value)}><option value="">-- Select new role --</option>{roles.filter(role => role.id !== replaceFromRoleId).map(role => <option key={role.id} value={role.id}>{role.name}</option>)}</select></div>
-                    <button className="btn" disabled={roleLoading || !replaceFromRoleId || !replaceRoleId} onClick={() => { if (window.confirm('Replace this role for every member?')) runRoleAction('/roles/replace', { fromRoleId: replaceFromRoleId, toRoleId: replaceRoleId }); }}>Replace role for all members</button>
+                    <button className="btn" disabled={roleLoading || Boolean(replaceProgress?.inProgress) || !replaceFromRoleId || !replaceRoleId} onClick={() => { if (window.confirm('Replace this role for every member?')) runRoleAction('/roles/replace', { fromRoleId: replaceFromRoleId, toRoleId: replaceRoleId }); }}>
+                      {replaceProgress?.inProgress ? `Replacing (${replaceProgress.processed}/${replaceProgress.total})...` : 'Replace role for all members'}
+                    </button>
+                    {replaceProgress && replaceProgress.inProgress && (
+                      <div style={{ marginTop: '14px', padding: '12px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '0.85rem' }}>
+                          <span>🔄 Replacing {replaceProgress.fromRoleName} &rarr; {replaceProgress.toRoleName}</span>
+                          <span>{replaceProgress.processed} / {replaceProgress.total} ({Math.round((replaceProgress.processed / (replaceProgress.total || 1)) * 100)}%)</span>
+                        </div>
+                        <div style={{ width: '100%', height: '8px', background: 'rgba(255, 255, 255, 0.1)', borderRadius: '4px', overflow: 'hidden' }}>
+                          <div style={{ width: `${Math.round((replaceProgress.processed / (replaceProgress.total || 1)) * 100)}%`, height: '100%', background: '#3b82f6', transition: 'width 0.3s ease' }}></div>
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                          Updated: {replaceProgress.success} | Skipped: {replaceProgress.failed}
+                        </div>
+                      </div>
+                    )}
+                    {replaceProgress && !replaceProgress.inProgress && replaceProgress.total > 0 && (
+                      <div style={{ marginTop: '14px', padding: '10px 14px', background: 'rgba(34, 197, 94, 0.1)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: '8px', fontSize: '0.85rem', color: '#22c55e' }}>
+                        ✅ Role replacement complete: {replaceProgress.success} members updated, {replaceProgress.failed} skipped.
+                      </div>
+                    )}
                     <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--panel-border)' }}><h3 style={{ marginBottom: '6px' }}>AI cleanup advice</h3><p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '10px' }}>Suggestions only—AI never edits roles automatically.</p><button className="btn" disabled={roleLoading} onClick={getAIRoleAdvice}>Ask AI to review roles</button>{roleAdvice && renderFormattedAdvice(roleAdvice)}</div>
                   </div>
                 </div>
