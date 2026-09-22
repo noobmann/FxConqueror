@@ -621,7 +621,11 @@ client.on('messageCreate', async (message) => {
               return;
             }
 
-            const modelName = aiSettings.modelName || 'groq/compound';
+            let modelName = aiSettings.modelName || 'llama-3.3-70b-versatile';
+            // Auto-migrate decommissioned Groq compound models to active flagship Llama 3.3
+            if (modelName === 'groq/compound' || modelName === 'groq/compound-mini') {
+              modelName = 'llama-3.3-70b-versatile';
+            }
 
             const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
               method: 'POST',

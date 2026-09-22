@@ -478,7 +478,9 @@ const App: React.FC = () => {
         setAiChatChannelId((statusData.settings as any).aiChatSettings.channelId || '');
         setAiChatReplyOnMention((statusData.settings as any).aiChatSettings.replyOnMention !== false);
         setAiChatInstructions((statusData.settings as any).aiChatSettings.instructions || '');
-        setAiChatModelName((statusData.settings as any).aiChatSettings.modelName || 'gemini-2.5-flash');
+        const rawModel = (statusData.settings as any).aiChatSettings.modelName || 'gemini-2.5-flash';
+        const effectiveModel = (rawModel === 'groq/compound' || rawModel === 'groq/compound-mini') ? 'llama-3.3-70b-versatile' : rawModel;
+        setAiChatModelName(effectiveModel);
         setAiChatProvider((statusData.settings as any).aiChatSettings.provider || 'gemini');
         setAiChatGroqApiKey((statusData.settings as any).aiChatSettings.groqApiKey || '');
       }
@@ -3184,7 +3186,7 @@ const App: React.FC = () => {
                         const p = e.target.value as 'gemini' | 'groq';
                         setAiChatProvider(p);
                         if (p === 'groq') {
-                          setAiChatModelName('groq/compound');
+                          setAiChatModelName('llama-3.3-70b-versatile');
                         } else {
                           setAiChatModelName('gemini-2.5-flash');
                         }
@@ -3225,9 +3227,9 @@ const App: React.FC = () => {
                           value={aiChatModelName}
                           onChange={e => setAiChatModelName(e.target.value)}
                         >
-                          <option value="groq/compound">groq/compound (Recommended - High IQ)</option>
-                          <option value="groq/compound-mini">groq/compound-mini (Super Fast)</option>
-                          <option value="qwen/qwen3.6-27b">qwen/qwen3.6-27b (Qwen 27B)</option>
+                          <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (Recommended - High IQ)</option>
+                          <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (Super Fast & Low Latency)</option>
+                          <option value="openai/gpt-oss-120b">openai/gpt-oss-120b (Deep Reasoning)</option>
                           <option value="openai/gpt-oss-20b">openai/gpt-oss-20b (GPT OSS 20B)</option>
                         </select>
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
