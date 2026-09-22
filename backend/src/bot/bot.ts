@@ -621,10 +621,15 @@ client.on('messageCreate', async (message) => {
               return;
             }
 
-            let modelName = aiSettings.modelName || 'llama-3.3-70b-versatile';
-            // Auto-migrate decommissioned Groq compound models to active flagship Llama 3.3
-            if (modelName === 'groq/compound' || modelName === 'groq/compound-mini') {
-              modelName = 'llama-3.3-70b-versatile';
+            let modelName = aiSettings.modelName || 'qwen/qwen3.8-27b';
+            // Auto-migrate decommissioned or unavailable Groq models to verified active qwen/qwen3.8-27b
+            if (
+              modelName === 'groq/compound' ||
+              modelName === 'groq/compound-mini' ||
+              modelName.includes('llama') ||
+              modelName === 'qwen/qwen3.6-27b'
+            ) {
+              modelName = 'qwen/qwen3.8-27b';
             }
 
             const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {

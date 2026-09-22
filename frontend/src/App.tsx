@@ -479,7 +479,12 @@ const App: React.FC = () => {
         setAiChatReplyOnMention((statusData.settings as any).aiChatSettings.replyOnMention !== false);
         setAiChatInstructions((statusData.settings as any).aiChatSettings.instructions || '');
         const rawModel = (statusData.settings as any).aiChatSettings.modelName || 'gemini-2.5-flash';
-        const effectiveModel = (rawModel === 'groq/compound' || rawModel === 'groq/compound-mini') ? 'llama-3.3-70b-versatile' : rawModel;
+        const effectiveModel = (
+          rawModel === 'groq/compound' ||
+          rawModel === 'groq/compound-mini' ||
+          rawModel.includes('llama') ||
+          rawModel === 'qwen/qwen3.6-27b'
+        ) ? 'qwen/qwen3.8-27b' : rawModel;
         setAiChatModelName(effectiveModel);
         setAiChatProvider((statusData.settings as any).aiChatSettings.provider || 'gemini');
         setAiChatGroqApiKey((statusData.settings as any).aiChatSettings.groqApiKey || '');
@@ -3186,17 +3191,17 @@ const App: React.FC = () => {
                         const p = e.target.value as 'gemini' | 'groq';
                         setAiChatProvider(p);
                         if (p === 'groq') {
-                          setAiChatModelName('llama-3.3-70b-versatile');
+                          setAiChatModelName('qwen/qwen3.8-27b');
                         } else {
                           setAiChatModelName('gemini-2.5-flash');
                         }
                       }}
                     >
                       <option value="gemini">Google Gemini (Free/Permanent Free Tier)</option>
-                      <option value="groq">Groq Cloud Llama 3 (Ultra-Fast Free Developer Tier)</option>
+                      <option value="groq">Groq Cloud (Ultra-Fast Free Developer Tier)</option>
                     </select>
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      Choose the AI provider. Gemini is permanent free. Groq runs Llama 3 models at incredibly fast speeds.
+                      Choose the AI provider. Gemini is permanent free. Groq runs open-source models at lightning speed.
                     </span>
                   </div>
 
@@ -3227,13 +3232,12 @@ const App: React.FC = () => {
                           value={aiChatModelName}
                           onChange={e => setAiChatModelName(e.target.value)}
                         >
-                          <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (Recommended - High IQ)</option>
-                          <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (Super Fast & Low Latency)</option>
-                          <option value="openai/gpt-oss-120b">openai/gpt-oss-120b (Deep Reasoning)</option>
-                          <option value="openai/gpt-oss-20b">openai/gpt-oss-20b (GPT OSS 20B)</option>
+                          <option value="qwen/qwen3.8-27b">qwen/qwen3.8-27b (Recommended - Ultra Fast & High IQ)</option>
+                          <option value="openai/gpt-oss-120b">openai/gpt-oss-120b (OpenAI GPT-OSS 120B Reasoning)</option>
+                          <option value="openai/gpt-oss-20b">openai/gpt-oss-20b (OpenAI GPT-OSS 20B Fast)</option>
                         </select>
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          Choose which open-source Llama or Gemma model on Groq to drive conversations.
+                          Choose which open-source Qwen or GPT-OSS model on Groq to drive conversations.
                         </span>
                       </div>
 
