@@ -266,7 +266,33 @@ const App: React.FC = () => {
   const [scheduledMessages, setScheduledMessages] = useState<ScheduledMessage[]>([]);
 
   // Roles Tab Sub-Navigation
-  const [rolesSubTab, setRolesSubTab] = useState<'editor' | 'buttons' | 'channelAccess'>('editor');
+  const [rolesSubTab, setRolesSubTab] = useState<'editor' | 'buttons' | 'channelAccess' | 'aiArranger'>('editor');
+
+  // AI Role Arranger States
+  const [aiRoleLoading, setAiRoleLoading] = useState<boolean>(false);
+  const [aiRoleApplying, setAiRoleApplying] = useState<boolean>(false);
+  const [aiRolePlan, setAiRolePlan] = useState<{
+    summary: string;
+    tiers: Array<{
+      tierName: string;
+      description: string;
+      roles: Array<{
+        id: string;
+        currentName: string;
+        suggestedName: string;
+        currentColor: string;
+        suggestedColor: string;
+        currentPosition: number;
+        suggestedPositionRank: number;
+        isProtected: boolean;
+        reason: string;
+      }>;
+    }>;
+    recommendations?: string[];
+  } | null>(null);
+  const [aiRoleAutoEmoji, setAiRoleAutoEmoji] = useState<boolean>(true);
+  const [aiRoleHarmonizeColors, setAiRoleHarmonizeColors] = useState<boolean>(true);
+  const [aiRoleReorder, setAiRoleReorder] = useState<boolean>(true);
 
   // AI Hub Tab Sub-Navigation
   const [aiSubTab, setAiSubTab] = useState<'sorter' | 'chatbot'>('sorter');
@@ -949,6 +975,63 @@ const App: React.FC = () => {
         })}
       </div>
     );
+  };
+
+  const handleAISuggestRoles = async () => {
+    setAiRoleLoading(true);
+    setAiRolePlan(null);
+    try {
+      const res = await fetchAuth(`${API_BASE}/ai/suggest-role-arrangement`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          geminiApiKey,
+          autoEmoji: aiRoleAutoEmoji,
+          harmonizeColors: aiRoleHarmonizeColors
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to analyze roles');
+      setAiRolePlan(data.plan);
+    } catch (err: any) {
+      alert(`AI Role Arrangement plan failed: ${err.message}`);
+    } finally {
+      setAiRoleLoading(false);
+    }
+  };
+
+  const handleAIApplyRoles = async () => {
+    if (!aiRolePlan) return;
+    const confirm = window.confirm('Apply this role hierarchy & formatting to your Discord server? Protected roles will be preserved untouched.');
+    if (!confirm) return;
+    setAiRoleApplying(true);
+    try {
+      const res = await fetchAuth(`${API_BASE}/ai/apply-role-arrangement`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plan: aiRolePlan,
+          applyEmojis: aiRoleAutoEmoji,
+          applyColors: aiRoleHarmonizeColors,
+          applyPositions: aiRoleReorder,
+          aiPasscode
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to apply role arrangement');
+
+      setSaveStatus({ type: 'success', msg: data.message });
+      setTimeout(() => setSaveStatus({ type: null, msg: null }), 4000);
+      setAiRolePlan(null);
+
+      // Refresh roles list
+      const rolesRes = await fetchAuth(`${API_BASE}/guild/roles`);
+      if (rolesRes.ok) setRoles(await rolesRes.json());
+    } catch (err: any) {
+      alert(`AI Apply Roles error: ${err.message}`);
+    } finally {
+      setAiRoleApplying(false);
+    }
   };
 
   const saveSchedule = async () => {
@@ -2296,6 +2379,19 @@ const App: React.FC = () => {
                   🛡️ Role Builder
                 </button>
                 <button
+                  className={`btn ${rolesSubTab === 'aiArranger' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setRolesSubTab('aiArranger')}
+                  style={{
+                    borderRadius: '8px',
+                    padding: '8px 16px',
+                    background: rolesSubTab === 'aiArranger' ? 'linear-gradient(135deg, #10b981, #06b6d4)' : undefined,
+                    border: rolesSubTab === 'aiArranger' ? 'none' : undefined,
+                    fontWeight: 600
+                  }}
+                >
+                  ✨ AI Role Arranger
+                </button>
+                <button
                   className={`btn ${rolesSubTab === 'buttons' ? 'btn-primary' : 'btn-secondary'}`}
                   onClick={() => setRolesSubTab('buttons')}
                   style={{ borderRadius: '8px', padding: '8px 16px' }}
@@ -2351,7 +2447,39 @@ const App: React.FC = () => {
                         ✅ Role replacement complete: {replaceProgress.success} members updated, {replaceProgress.failed} skipped.
                       </div>
                     )}
-                    <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--panel-border)' }}><h3 style={{ marginBottom: '6px' }}>AI cleanup advice</h3><p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '10px' }}>Suggestions only—AI never edits roles automatically.</p><button className="btn" disabled={roleLoading} onClick={getAIRoleAdvice}>Ask AI to review roles</button>{roleAdvice && renderFormattedAdvice(roleAdvice)}</div>
+                    <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--panel-border)' }}>
+                      <div style={{
+                        padding: '12px 16px',
+                        background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.06), rgba(6, 182, 212, 0.06))',
+                        border: '1px solid rgba(16, 185, 129, 0.2)',
+                        borderRadius: '8px',
+                        marginBottom: '16px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: '12px',
+                        flexWrap: 'wrap'
+                      }}>
+                        <div>
+                          <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>✨ AI Full Role Arranger</strong>
+                          <p style={{ margin: '3px 0 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                            Let AI automatically reorganize all hierarchy positions, colors, and emojis.
+                          </p>
+                        </div>
+                        <button
+                          className="btn btn-primary"
+                          onClick={() => setRolesSubTab('aiArranger')}
+                          style={{ padding: '6px 14px', fontSize: '0.8rem' }}
+                        >
+                          Open Arranger &rarr;
+                        </button>
+                      </div>
+
+                      <h3 style={{ marginBottom: '6px' }}>AI cleanup advice</h3>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '10px' }}>Suggestions only—AI never edits roles automatically.</p>
+                      <button className="btn" disabled={roleLoading} onClick={getAIRoleAdvice}>Ask AI to review roles</button>
+                      {roleAdvice && renderFormattedAdvice(roleAdvice)}
+                    </div>
                   </div>
                 </div>
               )}
@@ -2734,6 +2862,284 @@ const App: React.FC = () => {
                       )}
                     </div>
                   </div>
+                </div>
+              )}
+
+              {rolesSubTab === 'aiArranger' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  {/* Top Header Card */}
+                  <div className="glass-panel">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '15px', marginBottom: '1.5rem', borderBottom: '1px solid var(--panel-border)', paddingBottom: '14px' }}>
+                      <div>
+                        <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          ✨ AI Role Arranger & Hierarchy Organizer
+                        </h2>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '6px', maxWidth: '700px' }}>
+                          Let AI analyze all server roles, design a clean hierarchy (Leadership, Staff, VIP Traders, Community Badges), polish names with emojis, and harmonize colors.
+                        </p>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <span className="pill green" style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
+                          💡 Plan preview is free (No Passcode)
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Options Toggles */}
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                      gap: '15px',
+                      background: 'rgba(0,0,0,0.02)',
+                      border: '1px solid var(--panel-border)',
+                      padding: '16px',
+                      borderRadius: '8px',
+                      marginBottom: '1.5rem'
+                    }}>
+                      <div className="toggle-wrapper" style={{ padding: '4px 0' }}>
+                        <div className="toggle-label-desc">
+                          <h4 style={{ fontSize: '0.9rem' }}>✨ AI Emojis & Clean Names</h4>
+                          <p style={{ fontSize: '0.75rem' }}>Prefix roles with professional tier emojis (e.g. 🛡️ Moderator)</p>
+                        </div>
+                        <label className="switch">
+                          <input type="checkbox" checked={aiRoleAutoEmoji} onChange={e => setAiRoleAutoEmoji(e.target.checked)} />
+                          <span className="slider"></span>
+                        </label>
+                      </div>
+
+                      <div className="toggle-wrapper" style={{ padding: '4px 0' }}>
+                        <div className="toggle-label-desc">
+                          <h4 style={{ fontSize: '0.9rem' }}>🎨 Harmonize Color Palette</h4>
+                          <p style={{ fontSize: '0.75rem' }}>Coordinate colors by tier (gold for leaders, blue for mods, etc.)</p>
+                        </div>
+                        <label className="switch">
+                          <input type="checkbox" checked={aiRoleHarmonizeColors} onChange={e => setAiRoleHarmonizeColors(e.target.checked)} />
+                          <span className="slider"></span>
+                        </label>
+                      </div>
+
+                      <div className="toggle-wrapper" style={{ padding: '4px 0' }}>
+                        <div className="toggle-label-desc">
+                          <h4 style={{ fontSize: '0.9rem' }}>📶 Re-order Hierarchy</h4>
+                          <p style={{ fontSize: '0.75rem' }}>Adjust Discord role positions by authority within bot limits</p>
+                        </div>
+                        <label className="switch">
+                          <input type="checkbox" checked={aiRoleReorder} onChange={e => setAiRoleReorder(e.target.checked)} />
+                          <span className="slider"></span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {!aiRolePlan && !aiRoleLoading && (
+                      <div style={{ textAlign: 'center', padding: '30px 20px' }}>
+                        <div style={{ fontSize: '3rem', marginBottom: '14px' }}>🛡️⚡👑</div>
+                        <h3 style={{ marginBottom: '8px' }}>Ready to Structure Your Roles</h3>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', maxWidth: '550px', margin: '0 auto 20px auto' }}>
+                          AI will inspect your {roles.length} roles, check hierarchy permissions, and construct a complete organization blueprint for you to inspect before any change is made.
+                        </p>
+                        <button
+                          className="btn btn-primary"
+                          onClick={handleAISuggestRoles}
+                          style={{ padding: '12px 28px', fontSize: '1rem', borderRadius: '8px' }}
+                        >
+                          🔍 Analyze & Generate Role Plan
+                        </button>
+                      </div>
+                    )}
+
+                    {aiRoleLoading && (
+                      <div style={{ textAlign: 'center', padding: '50px 20px' }}>
+                        <div style={{ fontSize: '3rem', animation: 'spin 1.2s infinite linear' }}>✨</div>
+                        <h3 style={{ marginTop: '16px' }}>AI is structuring role hierarchy...</h3>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Analyzing authority tiers, naming, and color palettes. This takes a few seconds.</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Plan Review Section */}
+                  {aiRolePlan && !aiRoleLoading && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      {/* Summary Banner */}
+                      <div className="glass-panel" style={{
+                        background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.05), rgba(6, 182, 212, 0.05))',
+                        border: '1px solid rgba(16, 185, 129, 0.25)'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '8px' }}>
+                          <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-green)' }}>
+                            📋 Proposed Role Organization Blueprint
+                          </h3>
+                          <button
+                            className="btn btn-secondary"
+                            onClick={() => setAiRolePlan(null)}
+                            style={{ fontSize: '0.8rem', padding: '4px 10px' }}
+                          >
+                            Discard Plan
+                          </button>
+                        </div>
+                        <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-primary)', lineHeight: '1.5' }}>
+                          {aiRolePlan.summary}
+                        </p>
+
+                        {aiRolePlan.recommendations && aiRolePlan.recommendations.length > 0 && (
+                          <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px dashed var(--panel-border)' }}>
+                            <strong style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                              💡 AI Recommendations:
+                            </strong>
+                            <ul style={{ margin: '6px 0 0 18px', padding: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                              {aiRolePlan.recommendations.map((rec: string, rIdx: number) => (
+                                <li key={rIdx} style={{ marginBottom: '4px' }}>{rec}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Tiers List */}
+                      {aiRolePlan.tiers.map((tier: any, tIdx: number) => (
+                        <div key={tIdx} className="glass-panel" style={{ padding: '20px' }}>
+                          <div style={{ marginBottom: '14px', borderBottom: '1px solid var(--panel-border)', paddingBottom: '8px' }}>
+                            <h3 style={{ margin: '0 0 4px 0', fontSize: '1.1rem', color: 'var(--text-primary)' }}>
+                              {tier.tierName}
+                            </h3>
+                            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                              {tier.description}
+                            </p>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '12px' }}>
+                            {tier.roles.map((r: any) => (
+                              <div
+                                key={r.id}
+                                style={{
+                                  background: r.isProtected ? 'rgba(239, 68, 68, 0.04)' : 'rgba(0,0,0,0.02)',
+                                  border: r.isProtected ? '1px solid rgba(239, 68, 68, 0.2)' : '1px solid var(--panel-border)',
+                                  borderRadius: '8px',
+                                  padding: '12px 14px',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: '8px'
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span className="pill cyan" style={{ fontSize: '0.7rem', padding: '2px 6px', fontWeight: 700 }}>
+                                      Rank #{r.suggestedPositionRank}
+                                    </span>
+                                    {r.isProtected && (
+                                      <span className="pill red" style={{ fontSize: '0.7rem', padding: '2px 6px' }}>
+                                        🔒 Protected / Locked
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    {/* Color Indicator */}
+                                    <div
+                                      style={{
+                                        width: '14px',
+                                        height: '14px',
+                                        borderRadius: '4px',
+                                        background: r.currentColor || '#5865f2',
+                                        border: '1px solid rgba(255,255,255,0.2)'
+                                      }}
+                                      title={`Current Color: ${r.currentColor}`}
+                                    />
+                                    {aiRoleHarmonizeColors && r.suggestedColor !== r.currentColor && (
+                                      <>
+                                        <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>&rarr;</span>
+                                        <div
+                                          style={{
+                                            width: '14px',
+                                            height: '14px',
+                                            borderRadius: '4px',
+                                            background: r.suggestedColor,
+                                            border: '1px solid rgba(255,255,255,0.3)',
+                                            boxShadow: `0 0 6px ${r.suggestedColor}55`
+                                          }}
+                                          title={`Suggested Color: ${r.suggestedColor}`}
+                                        />
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                  {aiRoleAutoEmoji && r.suggestedName !== r.currentName ? (
+                                    <span>
+                                      <span style={{ textDecoration: 'line-through', opacity: 0.6, marginRight: '8px', fontSize: '0.85rem' }}>
+                                        {r.currentName}
+                                      </span>
+                                      <span style={{ color: 'var(--accent-green)' }}>
+                                        {r.suggestedName}
+                                      </span>
+                                    </span>
+                                  ) : (
+                                    <span>{r.suggestedName || r.currentName}</span>
+                                  )}
+                                </div>
+
+                                {r.reason && (
+                                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                                    {r.reason}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* Passcode Confirmation & Execution Block */}
+                      <div className="glass-panel" style={{
+                        background: 'rgba(6, 182, 212, 0.03)',
+                        border: '1px solid rgba(6, 182, 212, 0.25)',
+                        padding: '20px'
+                      }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '600px', marginBottom: '1.5rem' }}>
+                          <h4 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--accent-cyan)' }}>
+                            🔒 AI Organizer Security Passcode Required
+                          </h4>
+                          <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                            Applying structural changes to Discord roles requires the backend security passcode (same passcode as Channel Organizer).
+                          </p>
+                          <input
+                            type="password"
+                            className="form-input"
+                            style={{ padding: '8px 12px', fontSize: '0.875rem' }}
+                            placeholder="Enter AI organizer passcode..."
+                            value={aiPasscode}
+                            onChange={e => setAiPasscode(e.target.value)}
+                          />
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                          <button
+                            className="btn btn-primary"
+                            disabled={aiRoleApplying}
+                            onClick={handleAIApplyRoles}
+                            style={{
+                              padding: '12px 24px',
+                              fontSize: '0.95rem',
+                              borderRadius: '8px',
+                              background: 'linear-gradient(135deg, #10b981, #06b6d4)',
+                              border: 'none',
+                              fontWeight: 700
+                            }}
+                          >
+                            {aiRoleApplying ? '⏳ Applying to Discord...' : '🚀 Apply Role Arrangement to Discord'}
+                          </button>
+
+                          <button
+                            className="btn btn-secondary"
+                            disabled={aiRoleApplying}
+                            onClick={() => setAiRolePlan(null)}
+                            style={{ padding: '12px 20px', borderRadius: '8px' }}
+                          >
+                            Discard Plan
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

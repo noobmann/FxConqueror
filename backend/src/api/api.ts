@@ -485,6 +485,270 @@ router.post('/ai/role-advice', async (req: Request, res: Response) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// AI Role Arranger: Suggest Hierarchy & Arrangement Plan (No passcode required to preview)
+router.post('/ai/suggest-role-arrangement', async (req: Request, res: Response) => {
+  const guild = getGuild((req as any).guildId);
+  const apiKey = req.body.geminiApiKey || process.env.GEMINI_API_KEY;
+  if (!guild) return res.status(404).json({ error: 'Guild connection not available' });
+
+  try {
+    const roles = await guild.roles.fetch();
+    const botMember = await guild.members.fetchMe();
+    const botHighestPos = botMember.roles.highest.position;
+
+    const roleData = roles
+      .filter(r => r.name !== '@everyone' && !r.managed)
+      .map(r => {
+        const isProtected = Boolean(protectedRoleError(r)) || r.position >= botHighestPos;
+        return {
+          id: r.id,
+          name: r.name,
+          color: r.hexColor,
+          position: r.position,
+          memberCount: r.members.size,
+          isProtected
+        };
+      })
+      .sort((a, b) => b.position - a.position);
+
+    if (roleData.length === 0) {
+      return res.status(400).json({ error: 'No custom roles found on server to organize.' });
+    }
+
+    const { autoEmoji = true, harmonizeColors = true } = req.body;
+
+    if (!apiKey) {
+      const mockPlan = {
+        summary: 'Standard structured role hierarchy layout based on your current server roles.',
+        tiers: [
+          {
+            tierName: '👑 Executive & Leadership',
+            description: 'Top-tier founders and management roles',
+            roles: roleData.slice(0, 2).map((r, i) => ({
+              id: r.id,
+              currentName: r.name,
+              suggestedName: autoEmoji ? (r.name.includes('👑') ? r.name : `👑 ${r.name}`) : r.name,
+              currentColor: r.color,
+              suggestedColor: harmonizeColors ? '#f59e0b' : r.color,
+              currentPosition: r.position,
+              suggestedPositionRank: i + 1,
+              isProtected: r.isProtected,
+              reason: 'Highest administrative authority'
+            }))
+          },
+          {
+            tierName: '🛡️ Moderation & Security',
+            description: 'Staff responsible for safety and support',
+            roles: roleData.slice(2, 5).map((r, i) => ({
+              id: r.id,
+              currentName: r.name,
+              suggestedName: autoEmoji ? (r.name.includes('🛡️') ? r.name : `🛡️ ${r.name}`) : r.name,
+              currentColor: r.color,
+              suggestedColor: harmonizeColors ? '#3b82f6' : r.color,
+              currentPosition: r.position,
+              suggestedPositionRank: i + 3,
+              isProtected: r.isProtected,
+              reason: 'Community moderation and user assistance'
+            }))
+          },
+          {
+            tierName: '💬 Community & Members',
+            description: 'General members and active community',
+            roles: roleData.slice(5).map((r, i) => ({
+              id: r.id,
+              currentName: r.name,
+              suggestedName: autoEmoji ? (r.name.includes('💬') ? r.name : `💬 ${r.name}`) : r.name,
+              currentColor: r.color,
+              suggestedColor: harmonizeColors ? '#10b981' : r.color,
+              currentPosition: r.position,
+              suggestedPositionRank: i + 6,
+              isProtected: r.isProtected,
+              reason: 'Member tier participation'
+            }))
+          }
+        ].filter(t => t.roles.length > 0),
+        recommendations: [
+          'Ensure bot role remains higher in Discord hierarchy than all manageable roles.',
+          'Protected roles (Founder/Owner) cannot be edited by the bot.'
+        ]
+      };
+      return res.json({ plan: mockPlan });
+    }
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+    const systemPrompt = `You are a Discord server architect and hierarchy specialist.
+Analyze these Discord server roles and propose an organized, beautiful, and functional role structure.
+
+Input Roles (sorted currently by position):
+${JSON.stringify(roleData, null, 2)}
+
+Instructions:
+1. Group roles into logical tiers ordered strictly from highest authority to lowest:
+   - "👑 Leadership & Executives" (Owner, Founder, Executive, Director)
+   - "🛡️ Staff & Moderation" (Admin, Mod, Support, Helper)
+   - "📈 VIP & Premium Traders" (VIP, Signals, Pro Trader, Analyst)
+   - "⭐ Community Badges" (Booster, Top Contributor, Level Milestones)
+   - "💬 General Community" (Verified, Member)
+   - "🎭 Vanity / Miscellaneous" (Pings, Colors, Dividers)
+
+2. Role parameters:
+   - "id": Exact ID string.
+   - "currentName": Exact current name.
+   - "suggestedName": ${autoEmoji ? 'Add an appropriate leading emoji (e.g. "Moderator" -> "🛡️ Moderator"). Keep clean and readable. Max 50 chars.' : 'Keep exact currentName.'}
+   - "currentColor": Exact current color hex.
+   - "suggestedColor": ${harmonizeColors ? 'Suggest a vibrant, coordinated hex color code fitting its tier palette (e.g. #f59e0b for leadership, #3b82f6 for staff, #8b5cf6 for VIP/crypto, #10b981 for members).' : 'Keep exact currentColor.'}
+   - "currentPosition": Current position number.
+   - "suggestedPositionRank": Integer ranking from 1 (highest hierarchy position on server) down to N (lowest rank). Smaller number = higher position on server.
+   - "isProtected": Copy the isProtected boolean from input.
+   - "reason": Concise 1-sentence reason.
+
+3. Return ONLY a valid raw JSON object matching this schema without markdown:
+{
+  "summary": "Brief 1-2 sentence overview of proposed changes",
+  "tiers": [
+    {
+      "tierName": "Tier Name with Emoji",
+      "description": "Brief description of who belongs here",
+      "roles": [
+        {
+          "id": "role-id",
+          "currentName": "Role Name",
+          "suggestedName": "Suggested Name",
+          "currentColor": "#hex",
+          "suggestedColor": "#hex",
+          "currentPosition": 10,
+          "suggestedPositionRank": 1,
+          "isProtected": false,
+          "reason": "Why this role is here"
+        }
+      ]
+    }
+  ],
+  "recommendations": [
+    "Short recommendation 1",
+    "Short recommendation 2"
+  ]
+}`;
+
+    const result = await model.generateContent(systemPrompt);
+    let cleanJsonStr = result.response.text().trim();
+    if (cleanJsonStr.startsWith('```')) {
+      cleanJsonStr = cleanJsonStr.replace(/^```(json)?/, '').replace(/```$/, '').trim();
+    }
+    const plan = JSON.parse(cleanJsonStr);
+    addLog(`[AI Role Arranger] Generated role reorganization plan for ${roleData.length} roles.`, 'info');
+    res.json({ plan });
+  } catch (err: any) {
+    addLog(`[AI Role Arranger Error] Failed to generate plan: ${err.message}`, 'error');
+    res.status(500).json({ error: `AI Role plan generation failed: ${err.message}` });
+  }
+});
+
+// AI Role Arranger: Apply Hierarchy & Updates to Discord (Requires security passcode)
+router.post('/ai/apply-role-arrangement', async (req: Request, res: Response) => {
+  if (!hasValidAIPasscode(req)) {
+    return res.status(403).json({ error: 'AI organizer passcode is incorrect.' });
+  }
+
+  const guild = getGuild((req as any).guildId);
+  if (!guild) return res.status(404).json({ error: 'Guild connection not available' });
+
+  const { plan, applyEmojis = true, applyColors = true, applyPositions = true } = req.body;
+  if (!plan || !Array.isArray(plan.tiers)) {
+    return res.status(400).json({ error: 'Invalid or missing role arrangement plan.' });
+  }
+
+  try {
+    const roles = await guild.roles.fetch();
+    const botMember = await guild.members.fetchMe();
+    const botHighestPos = botMember.roles.highest.position;
+
+    const allPlanRoles: any[] = [];
+    for (const tier of plan.tiers) {
+      if (Array.isArray(tier.roles)) {
+        allPlanRoles.push(...tier.roles);
+      }
+    }
+
+    allPlanRoles.sort((a, b) => (a.suggestedPositionRank || 999) - (b.suggestedPositionRank || 999));
+
+    addLog(`[AI Role Arranger] Applying role arrangement plan (${allPlanRoles.length} roles evaluated)...`, 'info');
+
+    let updatedCount = 0;
+    let skippedCount = 0;
+
+    // 1. Update Names & Colors for editable roles
+    for (const pRole of allPlanRoles) {
+      const liveRole = roles.get(pRole.id);
+      if (!liveRole) {
+        skippedCount++;
+        continue;
+      }
+
+      if (pRole.isProtected || Boolean(protectedRoleError(liveRole)) || liveRole.position >= botHighestPos || liveRole.managed) {
+        skippedCount++;
+        continue;
+      }
+
+      const updates: { name?: string; color?: any } = {};
+      if (applyEmojis && pRole.suggestedName && pRole.suggestedName.trim() && pRole.suggestedName.trim() !== liveRole.name) {
+        updates.name = pRole.suggestedName.trim().slice(0, 100);
+      }
+      if (applyColors && pRole.suggestedColor && /^#[0-9a-f]{6}$/i.test(pRole.suggestedColor) && pRole.suggestedColor.toLowerCase() !== liveRole.hexColor.toLowerCase()) {
+        updates.color = pRole.suggestedColor;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        try {
+          await liveRole.edit({ ...updates, reason: 'AI Role Arranger Update' });
+          updatedCount++;
+          await new Promise(r => setTimeout(r, 150));
+        } catch (e: any) {
+          addLog(`[AI Role Arranger] Could not update role "${liveRole.name}": ${e.message}`, 'warn');
+        }
+      }
+    }
+
+    // 2. Re-order Positions if requested
+    if (applyPositions) {
+      const editableRoles = allPlanRoles.filter(pRole => {
+        const liveRole = roles.get(pRole.id);
+        return liveRole && !pRole.isProtected && !protectedRoleError(liveRole) && liveRole.position < botHighestPos && !liveRole.managed;
+      });
+
+      if (editableRoles.length > 0) {
+        const positionPayload = editableRoles.map((pRole, idx) => {
+          const targetPos = Math.max(1, botHighestPos - 1 - idx);
+          return {
+            role: pRole.id,
+            position: targetPos
+          };
+        });
+
+        try {
+          await guild.roles.setPositions(positionPayload);
+          addLog(`[AI Role Arranger] Successfully reorganized positions for ${positionPayload.length} roles.`, 'info');
+        } catch (posErr: any) {
+          addLog(`[AI Role Arranger] Position reordering note: ${posErr.message}`, 'warn');
+        }
+      }
+    }
+
+    addLog(`[AI Role Arranger] Role arrangement applied successfully! (${updatedCount} updated, ${skippedCount} protected/skipped).`, 'info');
+    res.json({
+      success: true,
+      message: `Role arrangement applied! ${updatedCount} roles updated, protected roles preserved untouched.`,
+      updatedCount,
+      skippedCount
+    });
+  } catch (err: any) {
+    addLog(`[AI Role Arranger Error] Failed to apply arrangement: ${err.message}`, 'error');
+    res.status(500).json({ error: `Failed to apply role arrangement: ${err.message}` });
+  }
+});
+
 router.get('/scheduled-messages', (_req: Request, res: Response) => res.json(getDb().scheduledMessages || []));
 
 router.post('/scheduled-messages', (req: Request, res: Response) => {
