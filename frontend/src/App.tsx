@@ -124,6 +124,10 @@ interface DiscordRole {
   id: string;
   name: string;
   color: string;
+  secondaryColor?: string | null;
+  tertiaryColor?: string | null;
+  roleStyle?: 'solid' | 'gradient' | 'holographic';
+  position?: number;
   memberCount: number;
   protected: boolean;
 }
@@ -145,6 +149,7 @@ interface GuildMember {
   joinedAt: string;
   joinedAtTimestamp: number;
   isAdmin: boolean;
+  roles?: string[];
 }
 
 interface AISortedChannel {
@@ -169,6 +174,18 @@ interface PollOption {
 }
 
 interface ScheduledMessage { id: string; channelId: string; message: string; timeIST: string; enabled: boolean; }
+
+const SOLID_PRESETS = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#00b0f4', '#9b59b6', '#f1c40f', '#e67e22', '#2ecc71'];
+
+const GRADIENT_PRESETS = [
+  { label: 'Sunset', p: '#ff5e62', s: '#ff9966' },
+  { label: 'Cyberpunk', p: '#00f2fe', s: '#4facfe' },
+  { label: 'Neon Pink', p: '#f857a6', s: '#ff5858' },
+  { label: 'Royal Violet', p: '#7f00ff', s: '#e100ff' },
+  { label: 'Emerald', p: '#11998e', s: '#38ef7d' },
+  { label: 'Gold Amber', p: '#f7971e', s: '#ffd200' },
+  { label: 'Ocean', p: '#2b5876', s: '#4e4376' }
+];
 
 const App: React.FC = () => {
   const API_BASE = import.meta.env.VITE_API_URL || '/api';
@@ -248,8 +265,16 @@ const App: React.FC = () => {
   const [newBadWord, setNewBadWord] = useState<string>('');
   const [selectedRoleId, setSelectedRoleId] = useState<string>('');
   const [newRoleName, setNewRoleName] = useState<string>('');
-  const [roleName, setRoleName] = useState<string>('');
+  const [newRoleStyle, setNewRoleStyle] = useState<'solid' | 'gradient' | 'holographic'>('solid');
   const [roleColor, setRoleColor] = useState<string>('#5865f2');
+  const [newRoleSecondaryColor, setNewRoleSecondaryColor] = useState<string>('#eb459e');
+  const [roleName, setRoleName] = useState<string>('');
+  const [editRoleStyle, setEditRoleStyle] = useState<'solid' | 'gradient' | 'holographic'>('solid');
+  const [editRoleColor, setEditRoleColor] = useState<string>('#5865f2');
+  const [editRoleSecondaryColor, setEditRoleSecondaryColor] = useState<string>('#eb459e');
+  const [hierarchyFilter, setHierarchyFilter] = useState<string>('');
+  const [inspectorMemberId, setInspectorMemberId] = useState<string>('');
+  const [movingRoleId, setMovingRoleId] = useState<string | null>(null);
   const [replaceFromRoleId, setReplaceFromRoleId] = useState<string>('');
   const [replaceRoleId, setReplaceRoleId] = useState<string>('');
   const [roleLoading, setRoleLoading] = useState<boolean>(false);
@@ -881,7 +906,142 @@ const App: React.FC = () => {
   const selectedRole = roles.find(role => role.id === selectedRoleId);
   const selectRole = (id: string) => {
     const role = roles.find(item => item.id === id);
-    setSelectedRoleId(id); setRoleName(role?.name || ''); setRoleColor(role?.color || '#5865f2');
+    setSelectedRoleId(id);
+    setRoleName(role?.name || '');
+    setEditRoleColor(role?.color && role.color !== '#000000' ? role.color : '#5865f2');
+    setEditRoleSecondaryColor(role?.secondaryColor || '#eb459e');
+    setEditRoleStyle(role?.roleStyle || (role?.secondaryColor ? 'gradient' : 'solid'));
+  };
+
+  const renderStyledRoleName = (
+    name: string,
+    style?: 'solid' | 'gradient' | 'holographic',
+    primary?: string,
+    secondary?: string | null,
+    size: 'normal' | 'large' = 'normal'
+  ) => {
+    const isHolo = style === 'holographic';
+    const isGrad = style === 'gradient' && primary && secondary;
+
+    if (isHolo) {
+      return (
+        <span
+          style={{
+            background: 'linear-gradient(135deg, #a9c9ff 0%, #ffa7ec 50%, #ffafa0 100%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            fontWeight: 700,
+            fontSize: size === 'large' ? '1.1rem' : '0.92rem',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}
+        >
+          <span
+            style={{
+              width: '10px',
+              height: '10px',
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, #a9c9ff, #ffa7ec, #ffafa0)',
+              display: 'inline-block',
+              boxShadow: '0 0 6px rgba(255, 167, 236, 0.7)'
+            }}
+          />
+          {name}
+          <span
+            style={{
+              fontSize: '0.62rem',
+              letterSpacing: '0.5px',
+              padding: '1px 5px',
+              borderRadius: '4px',
+              background: 'rgba(255, 167, 236, 0.2)',
+              color: '#ffa7ec',
+              WebkitTextFillColor: '#ffa7ec',
+              border: '1px solid rgba(255, 167, 236, 0.3)'
+            }}
+          >
+            HOLO
+          </span>
+        </span>
+      );
+    }
+
+    if (isGrad) {
+      return (
+        <span
+          style={{
+            background: `linear-gradient(90deg, ${primary}, ${secondary})`,
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            fontWeight: 700,
+            fontSize: size === 'large' ? '1.1rem' : '0.92rem',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}
+        >
+          <span
+            style={{
+              width: '10px',
+              height: '10px',
+              borderRadius: '50%',
+              background: `linear-gradient(90deg, ${primary}, ${secondary})`,
+              display: 'inline-block',
+              boxShadow: `0 0 6px ${primary}80`
+            }}
+          />
+          {name}
+          <span
+            style={{
+              fontSize: '0.62rem',
+              letterSpacing: '0.5px',
+              padding: '1px 5px',
+              borderRadius: '4px',
+              background: `${primary}25`,
+              color: primary,
+              WebkitTextFillColor: primary,
+              border: `1px solid ${primary}40`
+            }}
+          >
+            GRADIENT
+          </span>
+        </span>
+      );
+    }
+
+    const c = primary && primary !== '#000000' ? primary : '#94a3b8';
+    return (
+      <span
+        style={{
+          color: c,
+          fontWeight: 600,
+          fontSize: size === 'large' ? '1.1rem' : '0.92rem',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '6px'
+        }}
+      >
+        <span
+          style={{
+            width: '10px',
+            height: '10px',
+            borderRadius: '50%',
+            backgroundColor: c,
+            display: 'inline-block'
+          }}
+        />
+        {name}
+      </span>
+    );
+  };
+
+  const handleMoveRole = async (roleId: string, direction: 'up' | 'down' | 'top' | 'above', targetRoleId?: string) => {
+    setMovingRoleId(roleId);
+    try {
+      await runRoleAction('/roles/move', { roleId, direction, targetRoleId });
+    } finally {
+      setMovingRoleId(null);
+    }
   };
 
   const getAIRoleAdvice = async () => {
@@ -2408,80 +2568,912 @@ const App: React.FC = () => {
               </div>
 
               {rolesSubTab === 'editor' && (
-                <div className="grid-2" style={{ gridTemplateColumns: '1fr 1.4fr' }}>
-                  <div className="glass-panel">
-                    <h2 style={{ marginBottom: '14px' }}>Create new role</h2>
-                    <div className="form-group"><label>New role name</label><input className="form-input" value={newRoleName} onChange={e => setNewRoleName(e.target.value)} placeholder="Example: London Session" /></div>
-                    <div className="form-group"><label>Role color</label><input type="color" value={roleColor} onChange={e => setRoleColor(e.target.value)} /></div>
-                    <button className="btn" disabled={roleLoading || !newRoleName.trim()} onClick={() => runRoleAction('/roles/create', { name: newRoleName, color: roleColor }).then(() => setNewRoleName(''))}>Create new role</button>
-                    <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--panel-border)' }}>
-                      <h3 style={{ marginBottom: '10px' }}>Edit or delete an old role</h3>
-                      <div className="form-group"><label>Old role</label><select className="form-select" value={selectedRoleId} onChange={e => selectRole(e.target.value)}><option value="">-- Select old role --</option>{roles.map(role => <option key={role.id} value={role.id}>{role.name} ({role.memberCount} members){role.protected ? ' - protected' : ''}</option>)}</select></div>
-                      {selectedRoleId && <><div className="form-group"><label>Rename role</label><input className="form-input" value={roleName} onChange={e => setRoleName(e.target.value)} /></div><div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}><button className="btn btn-secondary" disabled={roleLoading || selectedRole?.protected || !roleName.trim()} onClick={() => runRoleAction('/roles/update', { roleId: selectedRoleId, name: roleName, color: roleColor })}>Save changes</button><button className="btn btn-danger" disabled={roleLoading || selectedRole?.protected} onClick={() => { if (window.confirm(`Delete ${selectedRole?.name}? This cannot be undone.`)) runRoleAction('/roles/delete', { roleId: selectedRoleId }); }}>Delete old role</button></div></>}
-                    </div>
-                  </div>
-                  <div className="glass-panel">
-                    <h3 style={{ marginBottom: '6px' }}>Replace role for everyone</h3>
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '14px' }}>Every member with the old role will receive the new role, and the old role will be removed.</p>
-                    <div className="form-group"><label>Old role to replace</label><select className="form-select" value={replaceFromRoleId} onChange={e => setReplaceFromRoleId(e.target.value)}><option value="">-- Select old role --</option>{roles.map(role => <option key={role.id} value={role.id}>{role.name} ({role.memberCount} members)</option>)}</select></div>
-                    <div className="form-group"><label>New replacement role</label><select className="form-select" value={replaceRoleId} onChange={e => setReplaceRoleId(e.target.value)}><option value="">-- Select new role --</option>{roles.filter(role => role.id !== replaceFromRoleId).map(role => <option key={role.id} value={role.id}>{role.name}</option>)}</select></div>
-                    <button className="btn" disabled={roleLoading || Boolean(replaceProgress?.inProgress) || !replaceFromRoleId || !replaceRoleId} onClick={() => { if (window.confirm('Replace this role for every member?')) runRoleAction('/roles/replace', { fromRoleId: replaceFromRoleId, toRoleId: replaceRoleId }); }}>
-                      {replaceProgress?.inProgress ? `Replacing (${replaceProgress.processed}/${replaceProgress.total})...` : 'Replace role for all members'}
-                    </button>
-                    {replaceProgress && replaceProgress.inProgress && (
-                      <div style={{ marginTop: '14px', padding: '12px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '8px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '0.85rem' }}>
-                          <span>🔄 Replacing {replaceProgress.fromRoleName} &rarr; {replaceProgress.toRoleName}</span>
-                          <span>{replaceProgress.processed} / {replaceProgress.total} ({Math.round((replaceProgress.processed / (replaceProgress.total || 1)) * 100)}%)</span>
+                <>
+                  <div className="grid-2" style={{ gridTemplateColumns: '1.2fr 1.3fr', gap: '20px' }}>
+                    {/* Left Column: Create & Edit with Enhanced Styles */}
+                    <div className="glass-panel">
+                      <h2 style={{ marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>🎨</span> Role Builder & Styles
+                      </h2>
+
+                      {/* --- CREATE ROLE SECTION --- */}
+                      <div style={{ marginBottom: '20px' }}>
+                        <h3 style={{ fontSize: '0.95rem', marginBottom: '10px', color: 'var(--text-primary)' }}>Create New Role</h3>
+                        
+                        <div className="form-group">
+                          <label>Role Name</label>
+                          <input
+                            className="form-input"
+                            value={newRoleName}
+                            onChange={e => setNewRoleName(e.target.value)}
+                            placeholder="Example: VIP Trader"
+                          />
                         </div>
-                        <div style={{ width: '100%', height: '8px', background: 'rgba(255, 255, 255, 0.1)', borderRadius: '4px', overflow: 'hidden' }}>
-                          <div style={{ width: `${Math.round((replaceProgress.processed / (replaceProgress.total || 1)) * 100)}%`, height: '100%', background: '#3b82f6', transition: 'width 0.3s ease' }}></div>
+
+                        {/* Style Selector Pills */}
+                        <div className="form-group">
+                          <label>Enhanced Role Style</label>
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                            <button
+                              type="button"
+                              className={`btn ${newRoleStyle === 'solid' ? 'btn-primary' : 'btn-secondary'}`}
+                              style={{ flex: 1, padding: '7px 10px', fontSize: '0.8rem', borderRadius: '6px' }}
+                              onClick={() => setNewRoleStyle('solid')}
+                            >
+                              Solid
+                            </button>
+                            <button
+                              type="button"
+                              className={`btn ${newRoleStyle === 'gradient' ? 'btn-primary' : 'btn-secondary'}`}
+                              style={{
+                                flex: 1,
+                                padding: '7px 10px',
+                                fontSize: '0.8rem',
+                                borderRadius: '6px',
+                                background: newRoleStyle === 'gradient' ? 'linear-gradient(135deg, #ff5e62, #ff9966)' : undefined,
+                                border: newRoleStyle === 'gradient' ? 'none' : undefined
+                              }}
+                              onClick={() => setNewRoleStyle('gradient')}
+                            >
+                              🌈 Gradient
+                            </button>
+                            <button
+                              type="button"
+                              className={`btn ${newRoleStyle === 'holographic' ? 'btn-primary' : 'btn-secondary'}`}
+                              style={{
+                                flex: 1,
+                                padding: '7px 10px',
+                                fontSize: '0.8rem',
+                                borderRadius: '6px',
+                                background: newRoleStyle === 'holographic' ? 'linear-gradient(135deg, #a9c9ff, #ffa7ec, #ffafa0)' : undefined,
+                                color: newRoleStyle === 'holographic' ? '#1e1f22' : undefined,
+                                fontWeight: newRoleStyle === 'holographic' ? 700 : undefined,
+                                border: newRoleStyle === 'holographic' ? 'none' : undefined
+                              }}
+                              onClick={() => setNewRoleStyle('holographic')}
+                            >
+                              ✨ Holographic
+                            </button>
+                          </div>
                         </div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
-                          Updated: {replaceProgress.success} | Skipped: {replaceProgress.failed}
+
+                        {/* Color Pickers based on style */}
+                        {newRoleStyle === 'solid' && (
+                          <div className="form-group">
+                            <label>Role Color</label>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <input
+                                type="color"
+                                value={roleColor}
+                                onChange={e => setRoleColor(e.target.value)}
+                                style={{ width: '42px', height: '36px', padding: 0, cursor: 'pointer', borderRadius: '6px', border: '1px solid var(--panel-border)' }}
+                              />
+                              <input
+                                className="form-input"
+                                style={{ width: '120px', fontFamily: 'monospace' }}
+                                value={roleColor}
+                                onChange={e => setRoleColor(e.target.value)}
+                              />
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
+                              {SOLID_PRESETS.map(hex => (
+                                <button
+                                  key={hex}
+                                  type="button"
+                                  onClick={() => setRoleColor(hex)}
+                                  style={{
+                                    width: '22px',
+                                    height: '22px',
+                                    borderRadius: '4px',
+                                    background: hex,
+                                    border: roleColor.toLowerCase() === hex.toLowerCase() ? '2px solid #fff' : '1px solid rgba(0,0,0,0.2)',
+                                    cursor: 'pointer',
+                                    padding: 0
+                                  }}
+                                  title={hex}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {newRoleStyle === 'gradient' && (
+                          <div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '8px' }}>
+                              <div className="form-group" style={{ margin: 0 }}>
+                                <label style={{ fontSize: '0.78rem' }}>Primary Color</label>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <input
+                                    type="color"
+                                    value={roleColor}
+                                    onChange={e => setRoleColor(e.target.value)}
+                                    style={{ width: '36px', height: '34px', padding: 0, cursor: 'pointer', borderRadius: '6px', border: '1px solid var(--panel-border)' }}
+                                  />
+                                  <input
+                                    className="form-input"
+                                    style={{ fontFamily: 'monospace', fontSize: '0.78rem' }}
+                                    value={roleColor}
+                                    onChange={e => setRoleColor(e.target.value)}
+                                  />
+                                </div>
+                              </div>
+                              <div className="form-group" style={{ margin: 0 }}>
+                                <label style={{ fontSize: '0.78rem' }}>Secondary Color</label>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <input
+                                    type="color"
+                                    value={newRoleSecondaryColor}
+                                    onChange={e => setNewRoleSecondaryColor(e.target.value)}
+                                    style={{ width: '36px', height: '34px', padding: 0, cursor: 'pointer', borderRadius: '6px', border: '1px solid var(--panel-border)' }}
+                                  />
+                                  <input
+                                    className="form-input"
+                                    style={{ fontFamily: 'monospace', fontSize: '0.78rem' }}
+                                    value={newRoleSecondaryColor}
+                                    onChange={e => setNewRoleSecondaryColor(e.target.value)}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                            <div style={{ marginBottom: '10px' }}>
+                              <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Presets: </span>
+                              <div style={{ display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+                                {GRADIENT_PRESETS.map(g => (
+                                  <button
+                                    key={g.label}
+                                    type="button"
+                                    onClick={() => { setRoleColor(g.p); setNewRoleSecondaryColor(g.s); }}
+                                    style={{
+                                      padding: '2px 7px',
+                                      fontSize: '0.7rem',
+                                      borderRadius: '4px',
+                                      background: `linear-gradient(90deg, ${g.p}, ${g.s})`,
+                                      color: '#fff',
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                      fontWeight: 600
+                                    }}
+                                  >
+                                    {g.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {newRoleStyle === 'holographic' && (
+                          <div style={{
+                            padding: '10px 12px',
+                            background: 'linear-gradient(135deg, rgba(169, 201, 255, 0.12), rgba(255, 167, 236, 0.12), rgba(255, 175, 160, 0.12))',
+                            border: '1px solid rgba(255, 167, 236, 0.3)',
+                            borderRadius: '8px',
+                            marginBottom: '10px'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '1.1rem' }}>✨</span>
+                              <div>
+                                <strong style={{ fontSize: '0.82rem', color: 'var(--text-primary)' }}>Discord Native Holographic</strong>
+                                <p style={{ margin: '2px 0 0', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                                  Applies iridescent multi-stop colors (#a9c9ff, #ffa7ec, #ffafa0).
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Live Discord Preview Box */}
+                        <div style={{
+                          padding: '10px 14px',
+                          background: 'rgba(0, 0, 0, 0.25)',
+                          border: '1px solid var(--panel-border)',
+                          borderRadius: '8px',
+                          marginBottom: '12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '12px'
+                        }}>
+                          <div style={{
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '50%',
+                            background: '#5865f2',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#fff',
+                            fontWeight: 700,
+                            fontSize: '0.8rem',
+                            flexShrink: 0
+                          }}>
+                            FX
+                          </div>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              {renderStyledRoleName(newRoleName || 'New Role Preview', newRoleStyle, roleColor, newRoleSecondaryColor)}
+                              <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Today at 12:00 PM</span>
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                              Preview of how username will appear in Discord chat & member list.
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    )}
-                    {replaceProgress && !replaceProgress.inProgress && replaceProgress.total > 0 && (
-                      <div style={{ marginTop: '14px', padding: '10px 14px', background: 'rgba(34, 197, 94, 0.1)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: '8px', fontSize: '0.85rem', color: '#22c55e' }}>
-                        ✅ Role replacement complete: {replaceProgress.success} members updated, {replaceProgress.failed} skipped.
-                      </div>
-                    )}
-                    <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--panel-border)' }}>
-                      <div style={{
-                        padding: '12px 16px',
-                        background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.06), rgba(6, 182, 212, 0.06))',
-                        border: '1px solid rgba(16, 185, 129, 0.2)',
-                        borderRadius: '8px',
-                        marginBottom: '16px',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        gap: '12px',
-                        flexWrap: 'wrap'
-                      }}>
-                        <div>
-                          <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>✨ AI Full Role Arranger</strong>
-                          <p style={{ margin: '3px 0 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                            Let AI automatically reorganize all hierarchy positions, colors, and emojis.
-                          </p>
-                        </div>
+
                         <button
                           className="btn btn-primary"
-                          onClick={() => setRolesSubTab('aiArranger')}
-                          style={{ padding: '6px 14px', fontSize: '0.8rem' }}
+                          disabled={roleLoading || !newRoleName.trim()}
+                          onClick={() => runRoleAction('/roles/create', {
+                            name: newRoleName,
+                            color: roleColor,
+                            secondaryColor: newRoleStyle === 'gradient' ? newRoleSecondaryColor : undefined,
+                            roleStyle: newRoleStyle
+                          }).then(() => setNewRoleName(''))}
                         >
-                          Open Arranger &rarr;
+                          Create New Role
                         </button>
                       </div>
 
-                      <h3 style={{ marginBottom: '6px' }}>AI cleanup advice</h3>
-                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '10px' }}>Suggestions only—AI never edits roles automatically.</p>
-                      <button className="btn" disabled={roleLoading} onClick={getAIRoleAdvice}>Ask AI to review roles</button>
-                      {roleAdvice && renderFormattedAdvice(roleAdvice)}
+                      {/* --- EDIT OLD ROLE SECTION --- */}
+                      <div style={{ paddingTop: '18px', borderTop: '1px solid var(--panel-border)' }}>
+                        <h3 style={{ marginBottom: '10px', fontSize: '0.95rem' }}>Edit or Delete an Existing Role</h3>
+                        <div className="form-group">
+                          <label>Select Role to Edit</label>
+                          <select className="form-select" value={selectedRoleId} onChange={e => selectRole(e.target.value)}>
+                            <option value="">-- Select role --</option>
+                            {roles.map(role => (
+                              <option key={role.id} value={role.id}>
+                                {role.name} ({role.memberCount} members) {role.protected ? ' - protected' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {selectedRoleId && (
+                          <>
+                            <div className="form-group">
+                              <label>Rename Role</label>
+                              <input className="form-input" value={roleName} onChange={e => setRoleName(e.target.value)} />
+                            </div>
+
+                            {/* Style Selector for Edit */}
+                            <div className="form-group">
+                              <label>Enhanced Role Style</label>
+                              <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                                <button
+                                  type="button"
+                                  className={`btn ${editRoleStyle === 'solid' ? 'btn-primary' : 'btn-secondary'}`}
+                                  style={{ flex: 1, padding: '7px 10px', fontSize: '0.8rem', borderRadius: '6px' }}
+                                  onClick={() => setEditRoleStyle('solid')}
+                                >
+                                  Solid
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`btn ${editRoleStyle === 'gradient' ? 'btn-primary' : 'btn-secondary'}`}
+                                  style={{
+                                    flex: 1,
+                                    padding: '7px 10px',
+                                    fontSize: '0.8rem',
+                                    borderRadius: '6px',
+                                    background: editRoleStyle === 'gradient' ? 'linear-gradient(135deg, #ff5e62, #ff9966)' : undefined,
+                                    border: editRoleStyle === 'gradient' ? 'none' : undefined
+                                  }}
+                                  onClick={() => setEditRoleStyle('gradient')}
+                                >
+                                  🌈 Gradient
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`btn ${editRoleStyle === 'holographic' ? 'btn-primary' : 'btn-secondary'}`}
+                                  style={{
+                                    flex: 1,
+                                    padding: '7px 10px',
+                                    fontSize: '0.8rem',
+                                    borderRadius: '6px',
+                                    background: editRoleStyle === 'holographic' ? 'linear-gradient(135deg, #a9c9ff, #ffa7ec, #ffafa0)' : undefined,
+                                    color: editRoleStyle === 'holographic' ? '#1e1f22' : undefined,
+                                    fontWeight: editRoleStyle === 'holographic' ? 700 : undefined,
+                                    border: editRoleStyle === 'holographic' ? 'none' : undefined
+                                  }}
+                                  onClick={() => setEditRoleStyle('holographic')}
+                                >
+                                  ✨ Holographic
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Edit Pickers */}
+                            {editRoleStyle === 'solid' && (
+                              <div className="form-group">
+                                <label>Role Color</label>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                  <input
+                                    type="color"
+                                    value={editRoleColor}
+                                    onChange={e => setEditRoleColor(e.target.value)}
+                                    style={{ width: '42px', height: '36px', padding: 0, cursor: 'pointer', borderRadius: '6px', border: '1px solid var(--panel-border)' }}
+                                  />
+                                  <input
+                                    className="form-input"
+                                    style={{ width: '120px', fontFamily: 'monospace' }}
+                                    value={editRoleColor}
+                                    onChange={e => setEditRoleColor(e.target.value)}
+                                  />
+                                </div>
+                                <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
+                                  {SOLID_PRESETS.map(hex => (
+                                    <button
+                                      key={hex}
+                                      type="button"
+                                      onClick={() => setEditRoleColor(hex)}
+                                      style={{
+                                        width: '22px',
+                                        height: '22px',
+                                        borderRadius: '4px',
+                                        background: hex,
+                                        border: editRoleColor.toLowerCase() === hex.toLowerCase() ? '2px solid #fff' : '1px solid rgba(0,0,0,0.2)',
+                                        cursor: 'pointer',
+                                        padding: 0
+                                      }}
+                                      title={hex}
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {editRoleStyle === 'gradient' && (
+                              <div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '8px' }}>
+                                  <div className="form-group" style={{ margin: 0 }}>
+                                    <label style={{ fontSize: '0.78rem' }}>Primary Color</label>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <input
+                                        type="color"
+                                        value={editRoleColor}
+                                        onChange={e => setEditRoleColor(e.target.value)}
+                                        style={{ width: '36px', height: '34px', padding: 0, cursor: 'pointer', borderRadius: '6px', border: '1px solid var(--panel-border)' }}
+                                      />
+                                      <input
+                                        className="form-input"
+                                        style={{ fontFamily: 'monospace', fontSize: '0.78rem' }}
+                                        value={editRoleColor}
+                                        onChange={e => setEditRoleColor(e.target.value)}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="form-group" style={{ margin: 0 }}>
+                                    <label style={{ fontSize: '0.78rem' }}>Secondary Color</label>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <input
+                                        type="color"
+                                        value={editRoleSecondaryColor}
+                                        onChange={e => setEditRoleSecondaryColor(e.target.value)}
+                                        style={{ width: '36px', height: '34px', padding: 0, cursor: 'pointer', borderRadius: '6px', border: '1px solid var(--panel-border)' }}
+                                      />
+                                      <input
+                                        className="form-input"
+                                        style={{ fontFamily: 'monospace', fontSize: '0.78rem' }}
+                                        value={editRoleSecondaryColor}
+                                        onChange={e => setEditRoleSecondaryColor(e.target.value)}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                                <div style={{ marginBottom: '10px' }}>
+                                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Presets: </span>
+                                  <div style={{ display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+                                    {GRADIENT_PRESETS.map(g => (
+                                      <button
+                                        key={g.label}
+                                        type="button"
+                                        onClick={() => { setEditRoleColor(g.p); setEditRoleSecondaryColor(g.s); }}
+                                        style={{
+                                          padding: '2px 7px',
+                                          fontSize: '0.7rem',
+                                          borderRadius: '4px',
+                                          background: `linear-gradient(90deg, ${g.p}, ${g.s})`,
+                                          color: '#fff',
+                                          border: 'none',
+                                          cursor: 'pointer',
+                                          fontWeight: 600
+                                        }}
+                                      >
+                                        {g.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {editRoleStyle === 'holographic' && (
+                              <div style={{
+                                padding: '10px 12px',
+                                background: 'linear-gradient(135deg, rgba(169, 201, 255, 0.12), rgba(255, 167, 236, 0.12), rgba(255, 175, 160, 0.12))',
+                                border: '1px solid rgba(255, 167, 236, 0.3)',
+                                borderRadius: '8px',
+                                marginBottom: '10px'
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <span style={{ fontSize: '1.1rem' }}>✨</span>
+                                  <div>
+                                    <strong style={{ fontSize: '0.82rem', color: 'var(--text-primary)' }}>Discord Native Holographic</strong>
+                                    <p style={{ margin: '2px 0 0', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                                      Applies iridescent multi-stop colors (#a9c9ff, #ffa7ec, #ffafa0).
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Live Edit Preview */}
+                            <div style={{
+                              padding: '10px 14px',
+                              background: 'rgba(0, 0, 0, 0.25)',
+                              border: '1px solid var(--panel-border)',
+                              borderRadius: '8px',
+                              marginBottom: '12px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '12px'
+                            }}>
+                              <div style={{
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '50%',
+                                background: '#5865f2',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: '#fff',
+                                fontWeight: 700,
+                                fontSize: '0.8rem',
+                                flexShrink: 0
+                              }}>
+                                FX
+                              </div>
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  {renderStyledRoleName(roleName || selectedRole?.name || 'Role Preview', editRoleStyle, editRoleColor, editRoleSecondaryColor)}
+                                  <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Today at 12:00 PM</span>
+                                </div>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                  Preview of updated role appearance.
+                                </div>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                              <button
+                                className="btn btn-secondary"
+                                disabled={roleLoading || selectedRole?.protected || !roleName.trim()}
+                                onClick={() => runRoleAction('/roles/update', {
+                                  roleId: selectedRoleId,
+                                  name: roleName,
+                                  color: editRoleColor,
+                                  secondaryColor: editRoleStyle === 'gradient' ? editRoleSecondaryColor : undefined,
+                                  roleStyle: editRoleStyle
+                                })}
+                              >
+                                Save Changes
+                              </button>
+                              <button
+                                className="btn btn-danger"
+                                disabled={roleLoading || selectedRole?.protected}
+                                onClick={() => {
+                                  if (window.confirm(`Delete ${selectedRole?.name}? This cannot be undone.`)) {
+                                    runRoleAction('/roles/delete', { roleId: selectedRoleId });
+                                  }
+                                }}
+                              >
+                                Delete Old Role
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Right Column: Role Replacement & Arranger advice */}
+                    <div className="glass-panel">
+                      <h3 style={{ marginBottom: '6px' }}>Replace role for everyone</h3>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '14px' }}>Every member with the old role will receive the new role, and the old role will be removed.</p>
+                      <div className="form-group"><label>Old role to replace</label><select className="form-select" value={replaceFromRoleId} onChange={e => setReplaceFromRoleId(e.target.value)}><option value="">-- Select old role --</option>{roles.map(role => <option key={role.id} value={role.id}>{role.name} ({role.memberCount} members)</option>)}</select></div>
+                      <div className="form-group"><label>New replacement role</label><select className="form-select" value={replaceRoleId} onChange={e => setReplaceRoleId(e.target.value)}><option value="">-- Select new role --</option>{roles.filter(role => role.id !== replaceFromRoleId).map(role => <option key={role.id} value={role.id}>{role.name}</option>)}</select></div>
+                      <button className="btn" disabled={roleLoading || Boolean(replaceProgress?.inProgress) || !replaceFromRoleId || !replaceRoleId} onClick={() => { if (window.confirm('Replace this role for every member?')) runRoleAction('/roles/replace', { fromRoleId: replaceFromRoleId, toRoleId: replaceRoleId }); }}>
+                        {replaceProgress?.inProgress ? `Replacing (${replaceProgress.processed}/${replaceProgress.total})...` : 'Replace role for all members'}
+                      </button>
+                      {replaceProgress && replaceProgress.inProgress && (
+                        <div style={{ marginTop: '14px', padding: '12px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '8px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '0.85rem' }}>
+                            <span>🔄 Replacing {replaceProgress.fromRoleName} &rarr; {replaceProgress.toRoleName}</span>
+                            <span>{replaceProgress.processed} / {replaceProgress.total} ({Math.round((replaceProgress.processed / (replaceProgress.total || 1)) * 100)}%)</span>
+                          </div>
+                          <div style={{ width: '100%', height: '8px', background: 'rgba(255, 255, 255, 0.1)', borderRadius: '4px', overflow: 'hidden' }}>
+                            <div style={{ width: `${Math.round((replaceProgress.processed / (replaceProgress.total || 1)) * 100)}%`, height: '100%', background: '#3b82f6', transition: 'width 0.3s ease' }}></div>
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                            Updated: {replaceProgress.success} | Skipped: {replaceProgress.failed}
+                          </div>
+                        </div>
+                      )}
+                      {replaceProgress && !replaceProgress.inProgress && replaceProgress.total > 0 && (
+                        <div style={{ marginTop: '14px', padding: '10px 14px', background: 'rgba(34, 197, 94, 0.1)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: '8px', fontSize: '0.85rem', color: '#22c55e' }}>
+                          ✅ Role replacement complete: {replaceProgress.success} members updated, {replaceProgress.failed} skipped.
+                        </div>
+                      )}
+                      <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--panel-border)' }}>
+                        <div style={{
+                          padding: '12px 16px',
+                          background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.06), rgba(6, 182, 212, 0.06))',
+                          border: '1px solid rgba(16, 185, 129, 0.2)',
+                          borderRadius: '8px',
+                          marginBottom: '16px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: '12px',
+                          flexWrap: 'wrap'
+                        }}>
+                          <div>
+                            <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>✨ AI Full Role Arranger</strong>
+                            <p style={{ margin: '3px 0 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                              Let AI automatically reorganize all hierarchy positions, colors, and emojis.
+                            </p>
+                          </div>
+                          <button
+                            className="btn btn-primary"
+                            onClick={() => setRolesSubTab('aiArranger')}
+                            style={{ padding: '6px 14px', fontSize: '0.8rem' }}
+                          >
+                            Open Arranger &rarr;
+                          </button>
+                        </div>
+
+                        <h3 style={{ marginBottom: '6px' }}>AI cleanup advice</h3>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '10px' }}>Suggestions only—AI never edits roles automatically.</p>
+                        <button className="btn" disabled={roleLoading} onClick={getAIRoleAdvice}>Ask AI to review roles</button>
+                        {roleAdvice && renderFormattedAdvice(roleAdvice)}
+                      </div>
                     </div>
                   </div>
-                </div>
+
+                  {/* --- FULL WIDTH PANEL: ROLE HIERARCHY & NAME COLOR PRIORITY MANAGER --- */}
+                  <div className="glass-panel" style={{ marginTop: '20px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px', marginBottom: '16px' }}>
+                      <div>
+                        <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.25rem' }}>
+                          <span>📶</span> Role Hierarchy & Name Color Priority
+                        </h2>
+                        <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: '780px' }}>
+                          <strong>How Discord name colors work:</strong> When a member has multiple roles, the role sitting <strong>highest</strong> in this server hierarchy list decides their display color and badge in the chat and member list. Reorder roles below or inspect a specific member to prioritize which role color appears on their name.
+                        </p>
+                      </div>
+                      <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        <input
+                          className="form-input"
+                          style={{ width: '220px', padding: '6px 12px', fontSize: '0.85rem' }}
+                          placeholder="Search roles..."
+                          value={hierarchyFilter}
+                          onChange={e => setHierarchyFilter(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Member Inspector Tool */}
+                    <div style={{
+                      padding: '16px',
+                      background: 'rgba(59, 130, 246, 0.05)',
+                      border: '1px solid rgba(59, 130, 246, 0.25)',
+                      borderRadius: '10px',
+                      marginBottom: '20px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                        <span style={{ fontSize: '1.1rem' }}>🎯</span>
+                        <strong style={{ fontSize: '0.92rem', color: 'var(--text-primary)' }}>
+                          Check & Prioritize a Member's Display Color
+                        </strong>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                          — Select any member to see why they have their current color, and choose which role color to put on top of their name!
+                        </span>
+                      </div>
+
+                      <div style={{ maxWidth: '420px', marginBottom: '12px' }}>
+                        <select
+                          className="form-select"
+                          value={inspectorMemberId}
+                          onChange={e => setInspectorMemberId(e.target.value)}
+                          style={{ fontSize: '0.85rem' }}
+                        >
+                          <option value="">-- Choose a member to inspect their roles --</option>
+                          {members.map(m => (
+                            <option key={m.id} value={m.id}>
+                              {m.username} ({m.tag}) - Level {m.level}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {(() => {
+                        if (!inspectorMemberId) return null;
+                        const inspectedMember = members.find(m => m.id === inspectorMemberId);
+                        if (!inspectedMember) return null;
+                        const mRoleIds = inspectedMember.roles || [];
+                        const memberRolesList = roles.filter(r => mRoleIds.includes(r.id));
+                        const activeColorRole = memberRolesList.find(r => r.color && r.color !== '#000000') || memberRolesList[0];
+
+                        return (
+                          <div style={{
+                            padding: '12px 16px',
+                            background: 'rgba(0, 0, 0, 0.2)',
+                            borderRadius: '8px',
+                            border: '1px solid var(--panel-border)'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                              {inspectedMember.avatar ? (
+                                <img
+                                  src={inspectedMember.avatar}
+                                  alt=""
+                                  style={{ width: '38px', height: '38px', borderRadius: '50%' }}
+                                />
+                              ) : (
+                                <div style={{
+                                  width: '38px',
+                                  height: '38px',
+                                  borderRadius: '50%',
+                                  background: '#5865f2',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontWeight: 700,
+                                  color: '#fff'
+                                }}>
+                                  {inspectedMember.username.substring(0, 2).toUpperCase()}
+                                </div>
+                              )}
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <strong style={{ fontSize: '0.95rem' }}>{inspectedMember.username}</strong>
+                                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>({inspectedMember.tag})</span>
+                                </div>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                  Current Active Name Color Role:{' '}
+                                  {activeColorRole ? (
+                                    <strong style={{ color: activeColorRole.color || '#fff' }}>
+                                      {activeColorRole.name}
+                                    </strong>
+                                  ) : (
+                                    <em>Default Discord Color (No custom role color)</em>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {memberRolesList.length === 0 ? (
+                              <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                                This member has no assignable server roles yet.
+                              </p>
+                            ) : (
+                              <div>
+                                <div style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
+                                  Member's Assigned Roles (Ordered from highest priority to lowest):
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                  {memberRolesList.map((r, rIdx) => {
+                                    const isCurrentTop = activeColorRole && r.id === activeColorRole.id;
+                                    const isMoving = movingRoleId === r.id;
+
+                                    return (
+                                      <div
+                                        key={r.id}
+                                        style={{
+                                          display: 'flex',
+                                          justifyContent: 'space-between',
+                                          alignItems: 'center',
+                                          padding: '8px 12px',
+                                          borderRadius: '6px',
+                                          background: isCurrentTop ? 'rgba(34, 197, 94, 0.12)' : 'rgba(255, 255, 255, 0.03)',
+                                          border: isCurrentTop ? '1px solid rgba(34, 197, 94, 0.35)' : '1px solid var(--panel-border)',
+                                          flexWrap: 'wrap',
+                                          gap: '8px'
+                                        }}
+                                      >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                          <span style={{
+                                            fontSize: '0.75rem',
+                                            fontWeight: 700,
+                                            padding: '2px 6px',
+                                            borderRadius: '4px',
+                                            background: isCurrentTop ? '#22c55e' : 'rgba(255,255,255,0.08)',
+                                            color: isCurrentTop ? '#fff' : 'var(--text-secondary)'
+                                          }}>
+                                            {isCurrentTop ? '👑 Active Color' : `#${rIdx + 1}`}
+                                          </span>
+                                          {renderStyledRoleName(r.name, r.roleStyle, r.color, r.secondaryColor)}
+                                        </div>
+
+                                        <div>
+                                          {isCurrentTop ? (
+                                            <span style={{ fontSize: '0.78rem', color: '#22c55e', fontWeight: 600 }}>
+                                              ✅ This role determines {inspectedMember.username}'s name color
+                                            </span>
+                                          ) : (
+                                            <button
+                                              className="btn btn-secondary"
+                                              style={{ padding: '4px 12px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                                              disabled={roleLoading || isMoving || r.protected}
+                                              onClick={() => handleMoveRole(r.id, 'above', activeColorRole.id)}
+                                              title={`Move ${r.name} above ${activeColorRole.name} so ${inspectedMember.username}'s name displays in ${r.name}'s color`}
+                                            >
+                                              {isMoving ? 'Moving...' : '✨ Prioritize this Role Color'}
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {/* Global Ranked Role List */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '70px 1.5fr 120px 110px 1fr',
+                        padding: '8px 14px',
+                        fontSize: '0.78rem',
+                        fontWeight: 600,
+                        color: 'var(--text-secondary)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                        borderBottom: '1px solid var(--panel-border)'
+                      }}>
+                        <span>Rank</span>
+                        <span>Role & Styled Appearance</span>
+                        <span>Style</span>
+                        <span>Members</span>
+                        <span style={{ textAlign: 'right' }}>Hierarchy Priority Actions</span>
+                      </div>
+
+                      {roles
+                        .filter(r => !hierarchyFilter.trim() || r.name.toLowerCase().includes(hierarchyFilter.toLowerCase()))
+                        .map((role, index) => {
+                          const isTop = index === 0;
+                          const isBottom = index === roles.length - 1;
+                          const isMoving = movingRoleId === role.id;
+                          const roleAbove = index > 0 ? roles[index - 1] : null;
+                          const canMoveUp = !role.protected && !isTop && (!roleAbove || !roleAbove.protected);
+
+                          return (
+                            <div
+                              key={role.id}
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: '70px 1.5fr 120px 110px 1fr',
+                                alignItems: 'center',
+                                padding: '10px 14px',
+                                background: role.id === selectedRoleId ? 'rgba(59, 130, 246, 0.08)' : 'rgba(255, 255, 255, 0.02)',
+                                border: role.id === selectedRoleId ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid var(--panel-border)',
+                                borderRadius: '8px',
+                                opacity: isMoving ? 0.6 : 1,
+                                transition: 'all 0.2s ease'
+                              }}
+                            >
+                              {/* Rank */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{
+                                  fontSize: '0.8rem',
+                                  fontWeight: 700,
+                                  color: index === 0 ? '#fbbf24' : 'var(--text-secondary)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '2px'
+                                }}>
+                                  {index === 0 ? '👑 #1' : `#${index + 1}`}
+                                </span>
+                              </div>
+
+                              {/* Role Name */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                                {renderStyledRoleName(role.name, role.roleStyle, role.color, role.secondaryColor)}
+                                {role.protected && (
+                                  <span style={{
+                                    fontSize: '0.68rem',
+                                    padding: '1px 6px',
+                                    borderRadius: '4px',
+                                    background: 'rgba(239, 68, 68, 0.15)',
+                                    color: '#ef4444',
+                                    border: '1px solid rgba(239, 68, 68, 0.3)'
+                                  }}>
+                                    Protected / Above Bot
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Style Tag */}
+                              <div>
+                                <span style={{
+                                  fontSize: '0.72rem',
+                                  padding: '2px 8px',
+                                  borderRadius: '4px',
+                                  background: role.roleStyle === 'holographic'
+                                    ? 'linear-gradient(135deg, rgba(169, 201, 255, 0.2), rgba(255, 167, 236, 0.2))'
+                                    : role.roleStyle === 'gradient'
+                                      ? 'rgba(59, 130, 246, 0.15)'
+                                      : 'rgba(255, 255, 255, 0.06)',
+                                  color: role.roleStyle === 'holographic' ? '#ffa7ec' : role.roleStyle === 'gradient' ? '#60a5fa' : 'var(--text-secondary)',
+                                  fontWeight: 600,
+                                  textTransform: 'capitalize'
+                                }}>
+                                  {role.roleStyle || 'Solid'}
+                                </span>
+                              </div>
+
+                              {/* Member Count */}
+                              <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                                👥 {role.memberCount}
+                              </div>
+
+                              {/* Actions */}
+                              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', alignItems: 'center' }}>
+                                {/* Move to Top Priority */}
+                                <button
+                                  className="btn btn-secondary"
+                                  style={{ padding: '4px 8px', fontSize: '0.74rem' }}
+                                  disabled={roleLoading || isMoving || role.protected || isTop}
+                                  onClick={() => handleMoveRole(role.id, 'top')}
+                                  title="Move to the top allowable priority position"
+                                >
+                                  🔝 Top
+                                </button>
+
+                                {/* Move Up */}
+                                <button
+                                  className="btn btn-secondary"
+                                  style={{ padding: '4px 8px', fontSize: '0.74rem' }}
+                                  disabled={roleLoading || isMoving || !canMoveUp}
+                                  onClick={() => handleMoveRole(role.id, 'up')}
+                                  title={canMoveUp ? 'Move up 1 rank' : 'Cannot move up (at top or role above is protected/above bot)'}
+                                >
+                                  ⬆️
+                                </button>
+
+                                {/* Move Down */}
+                                <button
+                                  className="btn btn-secondary"
+                                  style={{ padding: '4px 8px', fontSize: '0.74rem' }}
+                                  disabled={roleLoading || isMoving || role.protected || isBottom}
+                                  onClick={() => handleMoveRole(role.id, 'down')}
+                                  title={!isBottom ? 'Move down 1 rank' : 'Already at the bottom'}
+                                >
+                                  ⬇️
+                                </button>
+
+                                {/* Quick Edit */}
+                                <button
+                                  className="btn btn-secondary"
+                                  style={{ padding: '4px 8px', fontSize: '0.74rem' }}
+                                  onClick={() => {
+                                    selectRole(role.id);
+                                    window.scrollTo({ top: 300, behavior: 'smooth' });
+                                  }}
+                                  title="Edit role in builder above"
+                                >
+                                  ✏️
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                </>
               )}
 
               {rolesSubTab === 'buttons' && (

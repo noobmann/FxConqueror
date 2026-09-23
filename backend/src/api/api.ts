@@ -298,15 +298,42 @@ router.get('/guild/roles', async (req: Request, res: Response) => {
 
   try {
     const roles = await guild.roles.fetch();
+    const botMember = await guild.members.fetchMe();
+    const botHighestPos = botMember.roles.highest.position;
+
     const sortedRoles = roles
       .filter(r => r.name !== '@everyone' && !r.managed)
-      .map(r => ({
-        id: r.id,
-        name: r.name,
-        color: r.hexColor,
-        memberCount: r.members.size,
-        protected: Boolean(protectedRoleError(r))
-      }));
+      .map(r => {
+        const isProtected = Boolean(protectedRoleError(r)) || r.position >= botHighestPos;
+        let secondaryColor: string | null = null;
+        let tertiaryColor: string | null = null;
+        let roleStyle: 'solid' | 'gradient' | 'holographic' = 'solid';
+
+        if (r.colors) {
+          if (r.colors.secondaryColor) {
+            secondaryColor = '#' + r.colors.secondaryColor.toString(16).padStart(6, '0');
+            roleStyle = 'gradient';
+          }
+          if (r.colors.tertiaryColor) {
+            tertiaryColor = '#' + r.colors.tertiaryColor.toString(16).padStart(6, '0');
+            roleStyle = 'holographic';
+          }
+        }
+
+        return {
+          id: r.id,
+          name: r.name,
+          color: r.hexColor,
+          secondaryColor,
+          tertiaryColor,
+          roleStyle,
+          position: r.position,
+          memberCount: r.members.size,
+          protected: isProtected
+        };
+      })
+      .sort((a, b) => b.position - a.position);
+
     res.json(sortedRoles);
   } catch (err: any) {
     res.status(500).json({ error: `Failed to fetch roles: ${err.message}` });
@@ -317,9 +344,28 @@ router.post('/roles/create', async (req: Request, res: Response) => {
   const guild = getGuild((req as any).guildId);
   const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
   if (!guild || !name || name.length > 100) return res.status(400).json({ error: 'Enter a role name up to 100 characters.' });
+  const { color, secondaryColor, roleStyle } = req.body;
   try {
-    const role = await guild.roles.create({ name, color: /^#[0-9a-f]{6}$/i.test(req.body.color || '') ? req.body.color : undefined });
-    addLog(`Created role: ${role.name}`, 'info');
+    const createOptions: any = { name };
+    const isHex = (h: string) => /^#[0-9a-f]{6}$/i.test(h || '');
+
+    if (roleStyle === 'gradient' && isHex(color) && isHex(secondaryColor)) {
+      createOptions.colors = {
+        primaryColor: parseInt(color.replace('#', ''), 16),
+        secondaryColor: parseInt(secondaryColor.replace('#', ''), 16)
+      };
+    } else if (roleStyle === 'holographic') {
+      createOptions.colors = {
+        primaryColor: 11127295,
+        secondaryColor: 16759788,
+        tertiaryColor: 16761760
+      };
+    } else if (isHex(color)) {
+      createOptions.color = color;
+    }
+
+    const role = await guild.roles.create(createOptions);
+    addLog(`Created role: ${role.name} (${roleStyle || 'solid'})`, 'info');
     res.json({ message: `Created ${role.name}` });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -333,9 +379,115 @@ router.post('/roles/update', async (req: Request, res: Response) => {
     const blocked = protectedRoleError(role); if (blocked) return res.status(403).json({ error: blocked });
     const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
     if (!name || name.length > 100) return res.status(400).json({ error: 'Enter a role name up to 100 characters.' });
-    await role.edit({ name, color: /^#[0-9a-f]{6}$/i.test(req.body.color || '') ? req.body.color : undefined });
+    
+    const { color, secondaryColor, roleStyle } = req.body;
+    const editOptions: any = { name };
+    const isHex = (h: string) => /^#[0-9a-f]{6}$/i.test(h || '');
+
+    if (roleStyle === 'gradient' && isHex(color) && isHex(secondaryColor)) {
+      editOptions.colors = {
+        primaryColor: parseInt(color.replace('#', ''), 16),
+        secondaryColor: parseInt(secondaryColor.replace('#', ''), 16)
+      };
+    } else if (roleStyle === 'holographic') {
+      editOptions.colors = {
+        primaryColor: 11127295,
+        secondaryColor: 16759788,
+        tertiaryColor: 16761760
+      };
+    } else if (isHex(color)) {
+      editOptions.color = color;
+      editOptions.colors = {
+        primaryColor: parseInt(color.replace('#', ''), 16),
+        secondaryColor: null,
+        tertiaryColor: null
+      };
+    }
+
+    await role.edit(editOptions);
+    addLog(`Updated role: ${role.name} (${roleStyle || 'solid'})`, 'info');
     res.json({ message: 'Role updated.' });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/roles/move', async (req: Request, res: Response) => {
+  const guild = getGuild((req as any).guildId);
+  const { roleId, direction, targetRoleId } = req.body;
+  if (!guild || !roleId || !['up', 'down', 'top', 'above'].includes(direction)) {
+    return res.status(400).json({ error: 'Invalid move parameters.' });
+  }
+  try {
+    const roles = await guild.roles.fetch();
+    const role = roles.get(roleId);
+    if (!role) return res.status(404).json({ error: 'Role not found.' });
+
+    const blocked = protectedRoleError(role);
+    if (blocked) return res.status(403).json({ error: blocked });
+
+    const botMember = await guild.members.fetchMe();
+    const botHighestPos = botMember.roles.highest.position;
+
+    if (role.position >= botHighestPos) {
+      return res.status(403).json({ error: 'Bot cannot move roles equal to or higher than its own role.' });
+    }
+
+    const list = Array.from(roles.values())
+      .filter((r: any) => r.name !== '@everyone' && !r.managed)
+      .sort((a: any, b: any) => b.position - a.position);
+
+    const currentIndex = list.findIndex((r: any) => r.id === roleId);
+    if (currentIndex === -1) return res.status(404).json({ error: 'Role not found in active list.' });
+
+    if (direction === 'top') {
+      const topAllowedIndex = list.findIndex((r: any) => r.position < botHighestPos && !protectedRoleError(r));
+      if (topAllowedIndex === -1 || currentIndex <= topAllowedIndex) {
+        return res.status(400).json({ error: `"${role.name}" is already at top priority.` });
+      }
+      const targetRole = list[topAllowedIndex];
+      await guild.roles.setPositions([
+        { role: role.id, position: targetRole.position }
+      ]);
+      addLog(`[Role Hierarchy] Moved "${role.name}" to top priority rank.`, 'info');
+      return res.json({ message: `"${role.name}" is now at top priority!` });
+    }
+
+    if (direction === 'above' && targetRoleId) {
+      const targetIndex = list.findIndex((r: any) => r.id === targetRoleId);
+      if (targetIndex === -1) return res.status(404).json({ error: 'Target role not found.' });
+      const targetRole = list[targetIndex];
+      if (targetRole.position >= botHighestPos || protectedRoleError(targetRole)) {
+        return res.status(403).json({ error: `Cannot move above "${targetRole.name}" (role is protected or higher than bot).` });
+      }
+      const newPos = Math.min(botHighestPos - 1, targetRole.position + 1);
+      await guild.roles.setPositions([{ role: role.id, position: newPos }]);
+      addLog(`[Role Hierarchy] Moved "${role.name}" above "${targetRole.name}".`, 'info');
+      return res.json({ message: `"${role.name}" is now prioritized above "${targetRole.name}"!` });
+    }
+
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0) {
+      return res.status(400).json({ error: 'Role is already at the highest position in the list.' });
+    }
+    if (targetIndex >= list.length) {
+      return res.status(400).json({ error: 'Role is already at the lowest position in the list.' });
+    }
+
+    const targetRole = list[targetIndex];
+
+    if (direction === 'up' && (targetRole.position >= botHighestPos || protectedRoleError(targetRole))) {
+      return res.status(403).json({ error: `Cannot move above "${targetRole.name}" (role is protected or higher than bot).` });
+    }
+
+    await guild.roles.setPositions([
+      { role: role.id, position: targetRole.position },
+      { role: targetRole.id, position: role.position }
+    ]);
+
+    addLog(`[Role Hierarchy] Moved "${role.name}" ${direction} (swapped with "${targetRole.name}").`, 'info');
+    res.json({ message: `"${role.name}" moved ${direction}.` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.post('/roles/member', async (req: Request, res: Response) => {
@@ -934,7 +1086,8 @@ router.get('/guild/members', async (req: Request, res: Response) => {
         warnings: userWarnings,
         joinedAt: m.joinedAt?.toLocaleDateString() || 'Unknown',
         joinedAtTimestamp: m.joinedTimestamp || 0,
-        isAdmin: Boolean(m.permissions?.has(PermissionsBitField.Flags.Administrator))
+        isAdmin: Boolean(m.permissions?.has(PermissionsBitField.Flags.Administrator)),
+        roles: m.roles ? Array.from(m.roles.cache.keys()) : []
       };
     });
 
