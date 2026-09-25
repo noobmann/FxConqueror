@@ -897,9 +897,22 @@ client.on('messageCreate', async (message) => {
           await message.channel.sendTyping();
 
           const rawInstructions = aiSettings.instructions?.trim();
-          const systemPrompt = (rawInstructions && rawInstructions !== "Always reply in Hindi or Hinglish." && rawInstructions !== "You are a helpful assistant. Always reply in Hindi or Hinglish. Keep it friendly and concise.")
+          const systemPrompt = (rawInstructions && !rawInstructions.includes("Le re lund ke") && !rawInstructions.includes("Bantai") && rawInstructions !== "Always reply in Hindi or Hinglish." && rawInstructions !== "You are a helpful assistant. Always reply in Hindi or Hinglish. Keep it friendly and concise.")
             ? rawInstructions
             : DEFAULT_BANTAI_PROMPT;
+
+          // Contextual thread awareness: check if user is replying to a previous message
+          let userPromptText = `User @${message.author.username} says: ${cleanContent}`;
+          if (message.reference?.messageId) {
+            try {
+              const ref = await message.channel.messages.fetch(message.reference.messageId);
+              if (ref && ref.content) {
+                const authorLabel = ref.author.id === client.user?.id ? 'You (Bot)' : `@${ref.author.username}`;
+                userPromptText = `[In reply to ${authorLabel}: "${ref.content.slice(0, 150)}"]\nUser @${message.author.username} says: ${cleanContent}`;
+              }
+            } catch {}
+          }
+
           let replyText = '';
           const provider = aiSettings.provider || 'gemini';
 
@@ -937,7 +950,7 @@ client.on('messageCreate', async (message) => {
                   },
                   {
                     role: 'user',
-                    content: `User @${message.author.username} says: ${cleanContent}`
+                    content: userPromptText
                   }
                 ],
                 temperature: 0.7,
@@ -979,8 +992,7 @@ client.on('messageCreate', async (message) => {
               ]
             });
             
-            const prompt = `User @${message.author.username} says: ${cleanContent}`;
-            const result = await model.generateContent(prompt);
+            const result = await model.generateContent(userPromptText);
             replyText = result.response.text().trim();
           }
 
