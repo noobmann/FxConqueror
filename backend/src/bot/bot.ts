@@ -940,7 +940,7 @@ client.on('messageCreate', async (message) => {
                     content: `User @${message.author.username} says: ${cleanContent}`
                   }
                 ],
-                temperature: 0.95,
+                temperature: 0.7,
                 max_tokens: 150,
                 max_completion_tokens: 150
               })
@@ -966,8 +966,9 @@ client.on('messageCreate', async (message) => {
             const modelName = aiSettings.modelName || 'gemini-2.5-flash';
             const model = genAI.getGenerativeModel({
               model: modelName,
+              systemInstruction: systemPrompt,
               generationConfig: {
-                temperature: 0.95,
+                temperature: 0.7,
                 maxOutputTokens: 150
               },
               safetySettings: [
@@ -978,13 +979,8 @@ client.on('messageCreate', async (message) => {
               ]
             });
             
-            const finalPrompt = `System Instructions: ${systemPrompt}
-            
-User @${message.author.username} says: ${cleanContent}
-            
-Response (keep it natural, directly address the user, do not write "System:" or "User:", just write the 1-2 line reply):`;
-
-            const result = await model.generateContent(finalPrompt);
+            const prompt = `User @${message.author.username} says: ${cleanContent}`;
+            const result = await model.generateContent(prompt);
             replyText = result.response.text().trim();
           }
 
