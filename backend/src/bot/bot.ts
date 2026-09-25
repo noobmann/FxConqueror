@@ -8,7 +8,11 @@ import {
   GuildMember,
   ButtonInteraction,
   SlashCommandBuilder,
+  ContextMenuCommandBuilder,
+  ApplicationCommandType,
   ChatInputCommandInteraction,
+  MessageContextMenuCommandInteraction,
+  Message,
   ChannelType
 } from 'discord.js';
 import { getDb, saveDb, XpRecord, WarningRecord, getRandomApiKey } from '../utils/db';
@@ -68,13 +72,141 @@ const slashCommands = [
   new SlashCommandBuilder().setName('schedule').setDescription('Schedule a daily IST message').addChannelOption(option => option.setName('channel').setDescription('Target text channel').addChannelTypes(ChannelType.GuildText).setRequired(true)).addStringOption(option => option.setName('time').setDescription('IST time, e.g. 09:30').setRequired(true)).addStringOption(option => option.setName('message').setDescription('Daily message').setRequired(true)),
   new SlashCommandBuilder().setName('warn').setDescription('Warn a member').addUserOption(option => option.setName('user').setDescription('Member to warn').setRequired(true)).addStringOption(option => option.setName('reason').setDescription('Warning reason').setRequired(true)),
   new SlashCommandBuilder().setName('warnings').setDescription('View member warnings').addUserOption(option => option.setName('user').setDescription('Member to check').setRequired(true)),
-  new SlashCommandBuilder().setName('purge').setDescription('Delete recent messages').addIntegerOption(option => option.setName('amount').setDescription('1 to 100 messages').setMinValue(1).setMaxValue(100).setRequired(true)),
+  new SlashCommandBuilder().setName('purge').setDescription('Delete recent messages or from a specific message').addIntegerOption(option => option.setName('amount').setDescription('1 to 100 messages').setMinValue(1).setMaxValue(100).setRequired(false)).addStringOption(option => option.setName('from_message').setDescription('Message ID or Discord link to delete from that message to latest').setRequired(false)),
   new SlashCommandBuilder().setName('kick').setDescription('Kick a member').addUserOption(option => option.setName('user').setDescription('Member to kick').setRequired(true)).addStringOption(option => option.setName('reason').setDescription('Reason')),
-  new SlashCommandBuilder().setName('ban').setDescription('Ban a member').addUserOption(option => option.setName('user').setDescription('Member to ban').setRequired(true)).addStringOption(option => option.setName('reason').setDescription('Reason'))
+  new SlashCommandBuilder().setName('ban').setDescription('Ban a member').addUserOption(option => option.setName('user').setDescription('Member to ban').setRequired(true)).addStringOption(option => option.setName('reason').setDescription('Reason')),
+  new ContextMenuCommandBuilder().setName('Purge from here').setType(ApplicationCommandType.Message)
 ].map(command => command.toJSON());
 
-function hasStaffPermission(interaction: ChatInputCommandInteraction, permission: bigint) {
+function hasStaffPermission(interaction: ChatInputCommandInteraction | MessageContextMenuCommandInteraction, permission: bigint) {
   return Boolean(interaction.memberPermissions?.has(permission));
+}
+
+/**
+ * Purges all messages from a target message ID up to the latest message in the channel.
+ */
+export async function purgeFromMessage(
+  channel: TextChannel,
+  targetMessageId: string,
+  triggerMessage?: Message,
+  executor?: { id: string; tag: string }
+): Promise<{ success: boolean; deletedCount: number; oldSkippedCount: number; error?: string }> {
+  const botMember = channel.guild?.members.me;
+  if (!botMember || !botMember.permissionsIn(channel).has(PermissionsBitField.Flags.ManageMessages)) {
+    return { success: false, deletedCount: 0, oldSkippedCount: 0, error: 'I need Manage Messages permission to purge messages.' };
+  }
+
+  try {
+    let targetMsg: Message | null = null;
+    try {
+      targetMsg = await channel.messages.fetch(targetMessageId);
+    } catch {
+      // Target message may already be deleted, snowflake is still valid for `after` query
+    }
+
+    const toDeleteMap = new Map<string, Message>();
+    if (targetMsg) {
+      toDeleteMap.set(targetMsg.id, targetMsg);
+    }
+    if (triggerMessage) {
+      toDeleteMap.set(triggerMessage.id, triggerMessage);
+    }
+
+    let lastId = targetMessageId;
+    let keepFetching = true;
+    const MAX_PURGE = 500;
+
+    while (keepFetching && toDeleteMap.size < MAX_PURGE) {
+      const fetchLimit = Math.min(100, MAX_PURGE - toDeleteMap.size);
+      const fetched = await channel.messages.fetch({
+        after: lastId,
+        limit: fetchLimit
+      });
+
+      if (fetched.size === 0) {
+        break;
+      }
+
+      // Sort ascending by snowflake ID (oldest to newest)
+      const sorted = Array.from(fetched.values()).sort((a, b) => 
+        BigInt(a.id) > BigInt(b.id) ? 1 : -1
+      );
+
+      for (const msg of sorted) {
+        toDeleteMap.set(msg.id, msg);
+      }
+
+      lastId = sorted[sorted.length - 1].id;
+
+      if (fetched.size < fetchLimit) {
+        keepFetching = false;
+      }
+    }
+
+    const allMessages = Array.from(toDeleteMap.values());
+    if (allMessages.length === 0) {
+      return { success: true, deletedCount: 0, oldSkippedCount: 0 };
+    }
+
+    const now = Date.now();
+    const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000 - 60000;
+    const recentMessages = allMessages.filter(m => (now - m.createdTimestamp) < FOURTEEN_DAYS_MS);
+    const oldMessages = allMessages.filter(m => (now - m.createdTimestamp) >= FOURTEEN_DAYS_MS);
+
+    // Sort recent messages newest to oldest (so trigger/latest message deletes first)
+    recentMessages.sort((a, b) => (BigInt(b.id) > BigInt(a.id) ? 1 : -1));
+
+    let totalDeleted = 0;
+
+    for (let i = 0; i < recentMessages.length; i += 100) {
+      const chunk = recentMessages.slice(i, i + 100);
+      if (chunk.length === 1) {
+        try {
+          await chunk[0].delete();
+          totalDeleted += 1;
+        } catch {}
+      } else {
+        try {
+          const deleted = await channel.bulkDelete(chunk, true);
+          totalDeleted += deleted.size;
+        } catch (err: any) {
+          addLog(`Bulk delete chunk error: ${err.message}`, 'warn');
+        }
+      }
+    }
+
+    let oldSkippedCount = oldMessages.length;
+    if (oldMessages.length > 0 && oldMessages.length <= 5) {
+      for (const msg of oldMessages) {
+        try {
+          await msg.delete();
+          totalDeleted += 1;
+          oldSkippedCount -= 1;
+        } catch {}
+      }
+    }
+
+    const userTag = executor ? executor.tag : 'Staff';
+    const userId = executor ? executor.id : 'unknown';
+    addLog(`Purged ${totalDeleted} messages in #${channel.name} (from message ${targetMessageId} to last) by ${userTag}`, 'info');
+
+    const db = getDb();
+    if (!db.moderationLogs) db.moderationLogs = [];
+    db.moderationLogs.push({
+      id: Math.random().toString(36).substr(2, 9),
+      userId,
+      userTag,
+      action: 'purge',
+      reason: `Purged ${totalDeleted} messages from message ${targetMessageId} to latest`,
+      timestamp: new Date().toLocaleString()
+    });
+    saveDb(db);
+
+    return { success: true, deletedCount: totalDeleted, oldSkippedCount };
+  } catch (err: any) {
+    addLog(`purgeFromMessage error: ${err.message}`, 'error');
+    return { success: false, deletedCount: 0, oldSkippedCount: 0, error: err.message };
+  }
 }
 
 async function sendScheduledMessages() {
@@ -122,6 +254,32 @@ client.once('ready', () => {
 });
 
 client.on('interactionCreate', async (interaction) => {
+  if (interaction.isMessageContextMenuCommand() && interaction.commandName === 'Purge from here') {
+    const staff = () => hasStaffPermission(interaction, PermissionsBitField.Flags.ManageMessages);
+    const deny = async () => interaction.reply({ content: 'You do not have permission to use this command.', ephemeral: true });
+    if (!staff()) return void await deny();
+    if (!interaction.channel?.isTextBased() || !('bulkDelete' in interaction.channel)) {
+      return void await interaction.reply({ content: 'Use this in a server text channel.', ephemeral: true });
+    }
+
+    await interaction.deferReply({ ephemeral: true });
+    const targetMsg = interaction.targetMessage;
+    const result = await purgeFromMessage(interaction.channel as TextChannel, targetMsg.id, undefined, {
+      id: interaction.user.id,
+      tag: interaction.user.tag
+    });
+
+    if (!result.success) {
+      return void await interaction.editReply({ content: `❌ ${result.error || 'Failed to purge messages.'}` });
+    }
+
+    let replyMsg = `🗑️ Purged **${result.deletedCount}** message(s) from selected message to latest.`;
+    if (result.oldSkippedCount > 0) {
+      replyMsg += `\n⚠️ *${result.oldSkippedCount} message(s) older than 14 days were skipped (Discord API limitation).*`;
+    }
+    return void await interaction.editReply({ content: replyMsg });
+  }
+
   if (!interaction.isChatInputCommand()) return;
   const staff = () => hasStaffPermission(interaction, PermissionsBitField.Flags.ManageMessages);
   const admin = () => hasStaffPermission(interaction, PermissionsBitField.Flags.Administrator);
@@ -129,7 +287,7 @@ client.on('interactionCreate', async (interaction) => {
 
   try {
     if (interaction.commandName === 'help') {
-      return void interaction.reply({ ephemeral: true, content: '**Everyone:** `/help`, `/rank`, `/status`\n**Staff:** `/warn`, `/warnings`, `/purge`\n**Admin:** `/announce`, `/schedule`, `/kick`, `/ban`' });
+      return void interaction.reply({ ephemeral: true, content: '**Everyone:** `/help`, `/rank`, `/status`\n**Staff:** `/warn`, `/warnings`, `/purge` *(or reply `purge` to any message)*\n**Admin:** `/announce`, `/schedule`, `/kick`, `/ban`' });
     }
     if (interaction.commandName === 'status') return void interaction.reply(`Bot is online. Ping: ${client.ws.ping}ms`);
     if (interaction.commandName === 'rank') {
@@ -165,8 +323,32 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.commandName === 'purge') {
       if (!staff()) return void await deny();
       if (!interaction.channel?.isTextBased() || !('bulkDelete' in interaction.channel)) return void await interaction.reply({ content: 'Use this in a server text channel.', ephemeral: true });
-      const amount = interaction.options.getInteger('amount', true); await (interaction.channel as TextChannel).bulkDelete(amount, true);
-      return void interaction.reply({ content: `Deleted up to ${amount} recent messages.`, ephemeral: true });
+      const amount = interaction.options.getInteger('amount');
+      const fromMessage = interaction.options.getString('from_message');
+
+      if (fromMessage) {
+        await interaction.deferReply({ ephemeral: true });
+        const targetId = fromMessage.match(/\d+$/)?.[0] || fromMessage.trim();
+        const result = await purgeFromMessage(interaction.channel as TextChannel, targetId, undefined, {
+          id: interaction.user.id,
+          tag: interaction.user.tag
+        });
+        if (!result.success) {
+          return void await interaction.editReply({ content: `❌ ${result.error || 'Failed to purge messages.'}` });
+        }
+        let replyMsg = `🗑️ Purged **${result.deletedCount}** message(s) from that message to latest.`;
+        if (result.oldSkippedCount > 0) {
+          replyMsg += `\n⚠️ *${result.oldSkippedCount} message(s) older than 14 days were skipped (Discord API limitation).*`;
+        }
+        return void await interaction.editReply({ content: replyMsg });
+      }
+
+      if (amount) {
+        await (interaction.channel as TextChannel).bulkDelete(amount, true);
+        return void interaction.reply({ content: `Deleted up to ${amount} recent messages.`, ephemeral: true });
+      }
+
+      return void interaction.reply({ content: 'Please provide either an `amount` (1-100) or `from_message` (ID/link), or reply to any message with `purge`!', ephemeral: true });
     }
     if (interaction.commandName === 'kick' || interaction.commandName === 'ban') {
       if (!admin()) return void await deny();
@@ -522,6 +704,111 @@ client.on('messageCreate', async (message) => {
       await message.reply(`⭐ **Rank Card** | Level ${level} | XP: ${xp}/${needed}`);
     }
     return;
+  }
+
+  // 3b. Purge Commands:
+  // - Replying to any message with "purge" or "!purge" deletes from that message to latest
+  // - Prefix "!purge <amount>" (e.g. !purge 20)
+  const rawContent = message.content.trim();
+  const lowerContent = rawContent.toLowerCase();
+  const isPurgeKeyword = /^[!.]?purge(\s+(here|all|this))?$/i.test(lowerContent);
+  const isPurgeAmount = /^!purge\s+(\d+)$/i.exec(rawContent);
+
+  if (isPurgeKeyword || isPurgeAmount) {
+    const hasPermission = Boolean(
+      member?.permissions.has(PermissionsBitField.Flags.ManageMessages) ||
+      member?.permissions.has(PermissionsBitField.Flags.Administrator)
+    );
+
+    // If non-staff uses explicit !purge, give a friendly self-deleting warning
+    if (!hasPermission) {
+      if (rawContent.startsWith('!') || rawContent.startsWith('.')) {
+        try {
+          const warn = await message.reply('❌ You do not have permission to purge messages.');
+          setTimeout(() => {
+            warn.delete().catch(() => {});
+            message.delete().catch(() => {});
+          }, 4000);
+        } catch {}
+      }
+      return;
+    }
+
+    if (!message.channel?.isTextBased() || !('bulkDelete' in message.channel)) {
+      return;
+    }
+    const textChannel = message.channel as TextChannel;
+
+    // Case 1: Replying to a message with "purge" -> delete from replied message to latest
+    if (message.reference?.messageId && isPurgeKeyword) {
+      const targetMessageId = message.reference.messageId;
+      const result = await purgeFromMessage(textChannel, targetMessageId, message, {
+        id: message.author.id,
+        tag: message.author.tag
+      });
+
+      if (!result.success && result.error) {
+        try {
+          const errMsg = await textChannel.send(`❌ ${result.error}`);
+          setTimeout(() => errMsg.delete().catch(() => {}), 5000);
+        } catch {}
+        return;
+      }
+
+      let confirmText = `🗑️ Purged **${result.deletedCount}** message(s) from replied message to latest.`;
+      if (result.oldSkippedCount > 0) {
+        confirmText += `\n⚠️ *${result.oldSkippedCount} message(s) older than 14 days were skipped (Discord API limitation).*`;
+      }
+      try {
+        const confirmMsg = await textChannel.send(confirmText);
+        setTimeout(() => confirmMsg.delete().catch(() => {}), 4000);
+      } catch {}
+      return;
+    }
+
+    // Case 2: Prefix command "!purge <amount>" (e.g. !purge 20)
+    if (isPurgeAmount) {
+      const count = Math.min(100, Math.max(1, parseInt(isPurgeAmount[1], 10)));
+      try {
+        const deleted = await textChannel.bulkDelete(count + 1, true);
+        const actualCount = Math.max(0, deleted.size - 1);
+        const confirmMsg = await textChannel.send(`🗑️ Purged **${actualCount}** recent message(s).`);
+        setTimeout(() => confirmMsg.delete().catch(() => {}), 4000);
+
+        addLog(`Purged ${actualCount} messages in #${textChannel.name} (!purge) by ${message.author.tag}`, 'info');
+        if (!db.moderationLogs) db.moderationLogs = [];
+        db.moderationLogs.push({
+          id: Math.random().toString(36).substr(2, 9),
+          userId: message.author.id,
+          userTag: message.author.tag,
+          action: 'purge',
+          reason: `Purged ${actualCount} messages via !purge command`,
+          timestamp: new Date().toLocaleString()
+        });
+        saveDb(db);
+      } catch (err: any) {
+        addLog(`!purge error: ${err.message}`, 'error');
+        try {
+          const errMsg = await textChannel.send(`❌ Failed to purge messages: ${err.message}`);
+          setTimeout(() => errMsg.delete().catch(() => {}), 5000);
+        } catch {}
+      }
+      return;
+    }
+
+    // Case 3: Staff typed "!purge" without replying to any message
+    if (isPurgeKeyword && !message.reference?.messageId) {
+      if (rawContent.startsWith('!') || rawContent.startsWith('.')) {
+        try {
+          const tipMsg = await message.reply('💡 **Purge Tip:** Reply to a message with `purge` to delete from that message to latest, or type `!purge <number>` (e.g. `!purge 20`).');
+          setTimeout(() => {
+            tipMsg.delete().catch(() => {});
+            message.delete().catch(() => {});
+          }, 6000);
+        } catch {}
+        return;
+      }
+    }
   }
 
   // 4. Custom Triggers (Auto-responders)
