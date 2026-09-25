@@ -15,8 +15,8 @@ import {
   Message,
   ChannelType
 } from 'discord.js';
-import { getDb, saveDb, XpRecord, WarningRecord, getRandomApiKey } from '../utils/db';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { getDb, saveDb, XpRecord, WarningRecord, getRandomApiKey, DEFAULT_BANTAI_PROMPT } from '../utils/db';
+import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 
 export interface LogEntry {
   timestamp: string;
@@ -896,7 +896,10 @@ client.on('messageCreate', async (message) => {
           // Show typing indicator in the channel
           await message.channel.sendTyping();
 
-          const systemPrompt = aiSettings.instructions || "You are a helpful assistant. Always reply in Hindi or Hinglish. Keep it friendly and concise.";
+          const rawInstructions = aiSettings.instructions?.trim();
+          const systemPrompt = (rawInstructions && rawInstructions !== "Always reply in Hindi or Hinglish." && rawInstructions !== "You are a helpful assistant. Always reply in Hindi or Hinglish. Keep it friendly and concise.")
+            ? rawInstructions
+            : DEFAULT_BANTAI_PROMPT;
           let replyText = '';
           const provider = aiSettings.provider || 'gemini';
 
@@ -937,7 +940,7 @@ client.on('messageCreate', async (message) => {
                     content: `User @${message.author.username} says: ${cleanContent}`
                   }
                 ],
-                temperature: 0.9,
+                temperature: 0.95,
                 max_tokens: 150,
                 max_completion_tokens: 150
               })
@@ -961,13 +964,25 @@ client.on('messageCreate', async (message) => {
 
             const genAI = new GoogleGenerativeAI(apiKey);
             const modelName = aiSettings.modelName || 'gemini-2.5-flash';
-            const model = genAI.getGenerativeModel({ model: modelName });
+            const model = genAI.getGenerativeModel({
+              model: modelName,
+              generationConfig: {
+                temperature: 0.95,
+                maxOutputTokens: 150
+              },
+              safetySettings: [
+                { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+                { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }
+              ]
+            });
             
             const finalPrompt = `System Instructions: ${systemPrompt}
             
 User @${message.author.username} says: ${cleanContent}
             
-Response (keep it natural, directly address the user, do not write "System:" or "User:", just write the reply):`;
+Response (keep it natural, directly address the user, do not write "System:" or "User:", just write the 1-2 line reply):`;
 
             const result = await model.generateContent(finalPrompt);
             replyText = result.response.text().trim();
