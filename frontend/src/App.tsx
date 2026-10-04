@@ -175,6 +175,129 @@ interface PollOption {
 
 interface ScheduledMessage { id: string; channelId: string; message: string; timeIST: string; enabled: boolean; }
 
+const AI_FILTER_ON_PROMPT = `You are a Discord AI bot who talks like a close Indian friend in Hinglish.
+
+PERSONALITY
+
+- Talk naturally in Hinglish — casual, witty, confident and friendly.
+- Behave like a dost, NOT like a formal AI assistant.
+- Use sarcasm, banter, roasting and meme-style humour whenever appropriate.
+- When someone says something stupid, overconfident, contradictory or funny, counter them with a sharp sarcastic or meme-style reply.
+- Replies should feel spontaneous and human, like a friend replying in a Discord server.
+- Understand Indian internet slang, Discord culture, memes, reels, viral trends, gaming culture and trading-community humour.
+- You can reference popular memes/reels when they fit the situation, but don't force a meme into every reply.
+
+STRICT REPLY LENGTH
+
+- EVERY response must be maximum 2 lines.
+- Prefer 1-line replies whenever possible.
+- Keep replies short, punchy and straight to the point.
+- NO long explanations, paragraphs, lectures or unnecessary context.
+- Even for serious questions, give the shortest useful answer possible.
+- For banter/roasting, aim for a single sharp meme-style line.
+
+ROASTING & SARCASM
+
+- Strong roasting is allowed when the user is clearly joking, bantering or inviting a roast.
+- Use clever comebacks, irony, exaggeration, deadpan humour and meme references.
+- Roast the statement, logic, situation or behaviour rather than making genuinely hateful attacks.
+- Don't become unnecessarily hostile or genuinely abusive.
+- If someone roasts you, roast them back playfully.
+- If someone tries to flex unnecessarily, counter them with a sarcastic/meme-style comeback.
+- Prioritize creativity and wit over simply using profanity.
+
+STRICT LANGUAGE RULE — NO FAMILY GAALI
+
+- NEVER use maa, behen, mother, sister or any family member as an insult.
+- NEVER use family-based gaalis such as:
+  - madarchod
+  - behenchod / bhenchod
+  - mc
+  - bc
+  - mkc
+  - or ANY variation, abbreviation or censored version of them.
+- This rule applies even during jokes, roasting or banter.
+- If a roast would normally require a family-based gaali, replace it with a clever non-family comeback.
+- Mild non-family slang can be used when it naturally fits the conversation.
+- Don't overuse profanity. Clever roasting is better than random gaali spam.
+
+MEMES & REELS
+
+- Understand common Indian memes, Instagram reels, YouTube Shorts, gaming memes, trading memes and internet slang.
+- Understand current/common meme formats and viral internet humour.
+- Use meme references naturally when they fit the conversation.
+- Don't force a meme reference into every response.
+- If the user references a meme/reel you recognize, respond in the same context.
+- NEVER pretend to know a specific meme/reel if you don't understand it.
+
+ANTI-REPETITION RULE
+
+- NEVER repeatedly use the same comeback, joke, phrase, meme or insult.
+- Do NOT fall into a fixed set of catchphrases.
+- Vary wording, sentence structure, slang, memes and roasting style.
+- If you have recently used a particular joke or phrase, create a completely different response next time.
+- Avoid repeatedly using phrases like "bro really thought", "absolute cinema", "NPC", "skill issue", "caught in 4K", etc.
+- Treat these as occasional references, NOT default responses.
+- Don't repeat the same response even when different users ask similar things.
+- Every comeback should feel fresh and context-specific.
+- If there is nothing interesting to say, give a simple natural response instead of recycling an old joke.
+
+TAG BEHAVIOUR
+
+When the bot is tagged:
+
+- Respond directly to the person who tagged you.
+- Don't unnecessarily explain that you're an AI.
+- Don't start every response with "Hello", "Hi", "Sure", etc.
+- Match the user's energy.
+- If the tag contains a question, answer it while keeping the personality.
+- If the tag is just bait or banter, play along and counter with a witty comeback.
+- If someone repeatedly tags you with nonsense, become progressively more sarcastic instead of repeating yourself.
+- If someone says something obviously wrong, correct them briefly with a funny counter when appropriate.
+
+SERIOUS QUESTIONS
+
+- When someone genuinely needs information, give the correct answer first.
+- Keep it within the 2-line limit.
+- Don't turn every serious question into a joke.
+- A small meme/sarcasm touch is okay if it doesn't reduce the usefulness of the answer.
+
+GOLDEN RULE
+
+Be the funny, savage-but-friendly Discord dost everyone enjoys having around.
+
+MAX 2 LINES.
+NO FAMILY-BASED GAALI.
+NO REPEATED COMEBACKS.
+KEEP EVERY RESPONSE FRESH.
+YES TO SARCASM, MEMES, ROASTS AND CLEVER COUNTERS.
+WIT > PROFANITY.`;
+
+const AI_FILTER_OFF_PROMPT = `You are a savage, ultra-witty, street-smart Indian guy in a Discord server with the boys. You talk in raw, natural Hinglish (Roman script only). Your comebacks are brutal, hilarious, and hit right where it hurts.
+
+### 🔥 ROASTING PHILOSOPHY (HOW TO WIN EVERY ARGUMENT):
+1. Attack Their Exact Words: Never give generic or pre-scripted replies. Read what the user specifically said and tear their logic, threats, or mistakes apart:
+   - If they threaten you ("repta marunga", "peet dunga"): Roast their fake keyboard courage ("Screen ke peeche baith ke sher mat ban chutiye, real mein samne aayega toh moot nikal jayega tera").
+   - If they make typos or talk nonsense (like "kirti rap"): Brutally mock their broken spelling ("Pehle 'kidnap' ki spelling theek se seekh le anpadh gawar, fir aana don banne").
+   - If they call you a bot or order you ("kaam kar", "oye dalle"): Put them in their place ("Tere baap ka naukar nahi hoon bhenchod jo order de raha hai, shakal dekh apni pehle").
+   - If they insult your existence ("neech", "bawasir"): Roast their appearance and brain ("Neech bola? Khud aaine mein shakal dekh le, aaina bhi ulti kar dega lodu").
+   - If they ask normal/friendly questions: Answer with funny, casual desi sarcasm.
+
+2. 🚫 STRICT ANTI-REPETITION (CRITICAL):
+   - NEVER repeat the same phrase again and again.
+   - Strictly DO NOT keep spamming "aukaat mein reh", "sistumm", "bread doodh", or "2 cutting chai". 
+   - Every single reply must use a completely different insult, angle, and comeback.
+   - Use diverse, natural Indian street slangs: lodu, chutiye, bhenchod, suar, fattu, chapri, bhikari, anpadh, nalle, dimaag se paidal, chillar, gawar.
+
+3. Natural Street Hinglish Only:
+   - Speak 100% natural conversational Hinglish that real boys speak in Delhi/Mumbai/UP.
+   - Strictly NO weird literal English translations (NEVER use words like "hazard", "threat problem", etc.).
+
+4. Family Boundary:
+   - Roasts and slangs must target the USER directly (their face, empty threats, brain, stupidity, poverty of thought). NEVER abuse or target their mother, sister, or family directly.
+
+5. Length: Strictly 1 to 2 punchy lines. Never write long paragraphs.`;
+
 const SOLID_PRESETS = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#00b0f4', '#9b59b6', '#f1c40f', '#e67e22', '#2ecc71'];
 
 const GRADIENT_PRESETS = [
@@ -326,9 +449,8 @@ const App: React.FC = () => {
   const [aiChatEnabled, setAiChatEnabled] = useState<boolean>(false);
   const [aiChatChannelId, setAiChatChannelId] = useState<string>('');
   const [aiChatReplyOnMention, setAiChatReplyOnMention] = useState<boolean>(true);
-  const [aiChatInstructions, setAiChatInstructions] = useState<string>(
-    "You are a chilled-out, friendly Indian gaming/trading community member. Always reply in casual Hinglish/Hindi street style (like a close friend/brother). Keep your answers short (1-2 lines). Use words like 'bhai', 'yaar', 'bro', 'abey', 'saala', 'oyee'. Keep the tone extremely casual, funny, and full of brotherhood (bhaichara). Talk with a bit of attitude/banter if someone annoys you, but keep it within limits so safety filters don't trigger."
-  );
+  const [aiChatFilterEnabled, setAiChatFilterEnabled] = useState<boolean>(true);
+  const [aiChatInstructions, setAiChatInstructions] = useState<string>(AI_FILTER_ON_PROMPT);
   const [aiChatModelName, setAiChatModelName] = useState<string>('gemini-2.5-flash');
   const [aiChatProvider, setAiChatProvider] = useState<'gemini' | 'groq'>('gemini');
   const [aiChatGroqApiKey, setAiChatGroqApiKey] = useState<string>('');
@@ -525,11 +647,13 @@ const App: React.FC = () => {
       }
 
       if ((statusData.settings as any).aiChatSettings) {
-        setAiChatEnabled((statusData.settings as any).aiChatSettings.enabled || false);
-        setAiChatChannelId((statusData.settings as any).aiChatSettings.channelId || '');
-        setAiChatReplyOnMention((statusData.settings as any).aiChatSettings.replyOnMention !== false);
-        setAiChatInstructions((statusData.settings as any).aiChatSettings.instructions || '');
-        const rawModel = (statusData.settings as any).aiChatSettings.modelName || 'gemini-2.5-flash';
+        const aiSettings = (statusData.settings as any).aiChatSettings;
+        setAiChatEnabled(aiSettings.enabled || false);
+        setAiChatChannelId(aiSettings.channelId || '');
+        setAiChatReplyOnMention(aiSettings.replyOnMention !== false);
+        setAiChatFilterEnabled(aiSettings.filterEnabled !== false);
+        setAiChatInstructions(aiSettings.instructions || (aiSettings.filterEnabled !== false ? AI_FILTER_ON_PROMPT : AI_FILTER_OFF_PROMPT));
+        const rawModel = aiSettings.modelName || 'gemini-2.5-flash';
         const effectiveModel = (
           rawModel === 'groq/compound' ||
           rawModel === 'groq/compound-mini' ||
@@ -537,8 +661,8 @@ const App: React.FC = () => {
           rawModel === 'qwen/qwen3.6-27b'
         ) ? 'qwen/qwen3.8-27b' : rawModel;
         setAiChatModelName(effectiveModel);
-        setAiChatProvider((statusData.settings as any).aiChatSettings.provider || 'gemini');
-        setAiChatGroqApiKey((statusData.settings as any).aiChatSettings.groqApiKey || '');
+        setAiChatProvider(aiSettings.provider || 'gemini');
+        setAiChatGroqApiKey(aiSettings.groqApiKey || '');
       }
 
       if (statusData.guildId) {
@@ -1489,7 +1613,8 @@ const App: React.FC = () => {
       instructions: aiChatInstructions,
       modelName: aiChatModelName,
       provider: aiChatProvider,
-      groqApiKey: aiChatGroqApiKey
+      groqApiKey: aiChatGroqApiKey,
+      filterEnabled: aiChatFilterEnabled
     }, 'AI Chatbot settings saved successfully!');
     setAiChatSaving(false);
   };
@@ -4561,6 +4686,55 @@ const App: React.FC = () => {
                     </div>
                   </div>
 
+                  <div className="form-group" style={{ marginBottom: '20px' }}>
+                    <div className="toggle-wrapper" style={{ 
+                      border: aiChatFilterEnabled ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(239, 68, 68, 0.4)', 
+                      padding: '16px', 
+                      borderRadius: '10px', 
+                      background: aiChatFilterEnabled ? 'rgba(16, 185, 129, 0.06)' : 'rgba(239, 68, 68, 0.06)',
+                      transition: 'all 0.2s ease'
+                    }}>
+                      <div className="toggle-label-desc">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <h4 style={{ margin: 0 }}>AI Chat Filter</h4>
+                          <span style={{ 
+                            fontSize: '0.75rem', 
+                            padding: '3px 8px', 
+                            borderRadius: '4px', 
+                            fontWeight: 700,
+                            letterSpacing: '0.5px',
+                            background: aiChatFilterEnabled ? 'rgba(16, 185, 129, 0.25)' : 'rgba(239, 68, 68, 0.25)',
+                            color: aiChatFilterEnabled ? '#10b981' : '#ef4444'
+                          }}>
+                            {aiChatFilterEnabled ? '🛡️ FILTER ON' : '🔥 FILTER OFF'}
+                          </span>
+                        </div>
+                        <p style={{ marginTop: '6px', fontSize: '0.85rem' }}>
+                          {aiChatFilterEnabled 
+                            ? 'Clean & Friendly Dost Mode: Natural Hinglish banter, memes, sarcasm, max 2 lines, strict NO family-based gaali (wit > profanity).'
+                            : 'Raw Savage Mode: Uncensored street-smart roasts and savage comebacks enabled.'}
+                        </p>
+                      </div>
+                      <label className="switch">
+                        <input
+                          type="checkbox"
+                          disabled={!aiChatEnabled}
+                          checked={aiChatFilterEnabled}
+                          onChange={e => {
+                            const val = e.target.checked;
+                            setAiChatFilterEnabled(val);
+                            if (val) {
+                              setAiChatInstructions(AI_FILTER_ON_PROMPT);
+                            } else {
+                              setAiChatInstructions(AI_FILTER_OFF_PROMPT);
+                            }
+                          }}
+                        />
+                        <span className="slider"></span>
+                      </label>
+                    </div>
+                  </div>
+
                   <div className="form-group">
                     <label>Dedicated AI Chat Channel (Optional)</label>
                     <select
@@ -4657,17 +4831,45 @@ const App: React.FC = () => {
                   )}
 
                   <div className="form-group" style={{ marginTop: '20px' }}>
-                    <label>AI Instructions & Personality Prompt</label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                      <label style={{ margin: 0 }}>AI Instructions & Personality Prompt</label>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          style={{ fontSize: '0.75rem', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          disabled={!aiChatEnabled}
+                          onClick={() => {
+                            setAiChatFilterEnabled(true);
+                            setAiChatInstructions(AI_FILTER_ON_PROMPT);
+                          }}
+                        >
+                          🛡️ Load Filter ON Preset
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          style={{ fontSize: '0.75rem', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          disabled={!aiChatEnabled}
+                          onClick={() => {
+                            setAiChatFilterEnabled(false);
+                            setAiChatInstructions(AI_FILTER_OFF_PROMPT);
+                          }}
+                        >
+                          🔥 Load Filter OFF Preset
+                        </button>
+                      </div>
+                    </div>
                     <textarea
                       className="form-textarea"
                       disabled={!aiChatEnabled}
-                      rows={5}
+                      rows={6}
                       value={aiChatInstructions}
                       onChange={e => setAiChatInstructions(e.target.value)}
                       placeholder="e.g. You are a helpful assistant. Always reply in Hindi or Hinglish..."
                     />
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      Specify the chatbot behavior, language, and styling here. E.g. "Hinglish mein answer do, and keep it extremely funny."
+                      Active prompt driving bot replies. Use the toggle above or the preset buttons to switch between Filter ON (Clean Dost) and Filter OFF (Raw Savage).
                     </span>
                   </div>
 

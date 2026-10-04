@@ -15,7 +15,7 @@ import {
   Message,
   ChannelType
 } from 'discord.js';
-import { getDb, saveDb, XpRecord, WarningRecord, getRandomApiKey, DEFAULT_BANTAI_PROMPT } from '../utils/db';
+import { getDb, saveDb, XpRecord, WarningRecord, getRandomApiKey, DEFAULT_BANTAI_PROMPT, AI_FILTER_ON_PROMPT, AI_FILTER_OFF_PROMPT } from '../utils/db';
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 
 export interface LogEntry {
@@ -74,7 +74,20 @@ const slashCommands = [
   new SlashCommandBuilder().setName('warnings').setDescription('View member warnings').addUserOption(option => option.setName('user').setDescription('Member to check').setRequired(true)),
   new SlashCommandBuilder().setName('purge').setDescription('Delete recent messages or from a specific message').addIntegerOption(option => option.setName('amount').setDescription('1 to 100 messages').setMinValue(1).setMaxValue(100).setRequired(false)).addStringOption(option => option.setName('from_message').setDescription('Message ID or Discord link to delete from that message to latest').setRequired(false)),
   new SlashCommandBuilder().setName('kick').setDescription('Kick a member').addUserOption(option => option.setName('user').setDescription('Member to kick').setRequired(true)).addStringOption(option => option.setName('reason').setDescription('Reason')),
-  new SlashCommandBuilder().setName('ban').setDescription('Ban a member').addUserOption(option => option.setName('user').setDescription('Member to ban').setRequired(true)).addStringOption(option => option.setName('reason').setDescription('Reason')),
+  new SlashCommandBuilder().setName('filter').setDescription('Toggle AI chat filter on or off directly').addStringOption(option => 
+    option.setName('status').setDescription('Set filter to on, off, or leave empty to toggle').setRequired(false).addChoices(
+      { name: 'On (Clean Dost - No family gaali, wit > profanity)', value: 'on' },
+      { name: 'Off (Raw Savage - Uncensored street roasts)', value: 'off' },
+      { name: 'Toggle (Switch state)', value: 'toggle' }
+    )
+  ),
+  new SlashCommandBuilder().setName('aifilter').setDescription('Toggle AI chat filter on or off directly').addStringOption(option => 
+    option.setName('status').setDescription('Set filter to on, off, or leave empty to toggle').setRequired(false).addChoices(
+      { name: 'On (Clean Dost - No family gaali, wit > profanity)', value: 'on' },
+      { name: 'Off (Raw Savage - Uncensored street roasts)', value: 'off' },
+      { name: 'Toggle (Switch state)', value: 'toggle' }
+    )
+  ),
   new ContextMenuCommandBuilder().setName('Purge from here').setType(ApplicationCommandType.Message)
 ].map(command => command.toJSON());
 
@@ -287,7 +300,7 @@ client.on('interactionCreate', async (interaction) => {
 
   try {
     if (interaction.commandName === 'help') {
-      return void interaction.reply({ ephemeral: true, content: '**Everyone:** `/help`, `/rank`, `/status`\n**Staff:** `/warn`, `/warnings`, `/purge` *(or reply `purge` to any message)*\n**Admin:** `/announce`, `/schedule`, `/kick`, `/ban`' });
+      return void interaction.reply({ ephemeral: true, content: '**Everyone:** `/help`, `/rank`, `/status`\n**Staff:** `/warn`, `/warnings`, `/purge`, `/filter` *(or type `!filter` to toggle directly)*\n**Admin:** `/announce`, `/schedule`, `/kick`, `/ban`' });
     }
     if (interaction.commandName === 'status') return void interaction.reply(`Bot is online. Ping: ${client.ws.ping}ms`);
     if (interaction.commandName === 'rank') {
@@ -382,6 +395,40 @@ client.on('interactionCreate', async (interaction) => {
       saveDb(db);
       await postModerationNotice(user.id, interaction.commandName === 'kick' ? 'kicked' : 'banned', reason);
       return void interaction.reply(`${interaction.commandName === 'kick' ? 'Kicked' : 'Banned'} ${user.tag}.`);
+    }
+    if (interaction.commandName === 'filter' || interaction.commandName === 'aifilter') {
+      if (!staff()) return void await deny();
+      const status = interaction.options.getString('status');
+      const db = getDb();
+      if (!db.aiChatSettings) {
+        db.aiChatSettings = {
+          enabled: true,
+          channelId: '',
+          replyOnMention: true,
+          instructions: AI_FILTER_ON_PROMPT,
+          filterEnabled: true
+        };
+      }
+
+      const current = db.aiChatSettings.filterEnabled !== false;
+      let isFilterOn: boolean;
+      if (status === 'on') {
+        isFilterOn = true;
+      } else if (status === 'off') {
+        isFilterOn = false;
+      } else {
+        // Toggle when status is omitted or 'toggle'
+        isFilterOn = !current;
+      }
+
+      db.aiChatSettings.filterEnabled = isFilterOn;
+      db.aiChatSettings.instructions = isFilterOn ? AI_FILTER_ON_PROMPT : AI_FILTER_OFF_PROMPT;
+      saveDb(db);
+      addLog(`AI Chat Filter set to ${isFilterOn ? 'ON' : 'OFF'} by ${interaction.user.tag} (/${interaction.commandName})`, 'info');
+      const responseMsg = isFilterOn
+        ? '🛡️ **AI Chat Filter is now ON!** (Clean Dost Mode)\n• Natural Hinglish banter, memes, sarcasm\n• Maximum 2 lines\n• Strict NO family-based gaali (wit > profanity)\n\n*Type `/filter` or `!filter` anytime to toggle back to Raw Savage Mode.*'
+        : '🔥 **AI Chat Filter is now OFF!** (Raw Savage Mode)\n• Uncensored street roasts & savage comebacks enabled\n• Maximum 2 lines\n\n*Type `/filter` or `!filter` anytime to toggle back to Clean Dost Mode.*';
+      return void interaction.reply({ content: responseMsg });
     }
   } catch (err: any) {
     addLog(`Command ${interaction.commandName} failed: ${err.message}`, 'error');
@@ -811,6 +858,62 @@ client.on('messageCreate', async (message) => {
     }
   }
 
+  // 3c. Direct AI Filter command from Discord (!filter, !filter on, !filter off, !aifilter, .filter, .aifilter)
+  const isAiFilterCmd = /^[!.]?(filter|aifilter)(\s+(on|off|toggle))?$/i.exec(lowerContent);
+  if (isAiFilterCmd) {
+    const hasPermission = Boolean(
+      member?.permissions.has(PermissionsBitField.Flags.ManageMessages) ||
+      member?.permissions.has(PermissionsBitField.Flags.Administrator) ||
+      message.guild?.ownerId === message.author.id
+    );
+    if (!hasPermission) {
+      if (rawContent.startsWith('!') || rawContent.startsWith('.')) {
+        try {
+          const warn = await message.reply('❌ You do not have permission to configure AI Chat Filter.');
+          setTimeout(() => {
+            warn.delete().catch(() => {});
+            message.delete().catch(() => {});
+          }, 4000);
+        } catch {}
+      }
+      return;
+    }
+
+    const db = getDb();
+    if (!db.aiChatSettings) {
+      db.aiChatSettings = {
+        enabled: true,
+        channelId: '',
+        replyOnMention: true,
+        instructions: AI_FILTER_ON_PROMPT,
+        filterEnabled: true
+      };
+    }
+
+    const action = isAiFilterCmd[2]?.toLowerCase();
+    const current = db.aiChatSettings.filterEnabled !== false;
+
+    let isFilterOn: boolean;
+    if (action === 'on') {
+      isFilterOn = true;
+    } else if (action === 'off') {
+      isFilterOn = false;
+    } else {
+      // Direct toggle! If current is on, switch to off. If current is off, switch to on.
+      isFilterOn = !current;
+    }
+
+    db.aiChatSettings.filterEnabled = isFilterOn;
+    db.aiChatSettings.instructions = isFilterOn ? AI_FILTER_ON_PROMPT : AI_FILTER_OFF_PROMPT;
+    saveDb(db);
+    addLog(`AI Chat Filter set to ${isFilterOn ? 'ON' : 'OFF'} by ${message.author.tag} (${rawContent})`, 'info');
+
+    const responseMsg = isFilterOn
+      ? '🛡️ **AI Chat Filter is now ON!** (Clean Dost Mode)\n• Natural Hinglish banter, memes, sarcasm\n• Maximum 2 lines\n• Strict NO family-based gaali (wit > profanity)\n\n*Type `!filter` anytime to toggle back to Raw Savage Mode.*'
+      : '🔥 **AI Chat Filter is now OFF!** (Raw Savage Mode)\n• Uncensored street roasts & savage comebacks enabled\n• Maximum 2 lines\n\n*Type `!filter` anytime to toggle back to Clean Dost Mode.*';
+    return void message.reply(responseMsg);
+  }
+
   // 4. Custom Triggers (Auto-responders)
   const contentTrim = message.content.trim().toLowerCase();
   const matchedTrigger = db.triggers.find(t => contentTrim === t.trigger.toLowerCase());
@@ -896,10 +999,23 @@ client.on('messageCreate', async (message) => {
           // Show typing indicator in the channel
           await message.channel.sendTyping();
 
+          const isFilterOn = aiSettings.filterEnabled !== false;
+          const defaultPrompt = isFilterOn ? AI_FILTER_ON_PROMPT : AI_FILTER_OFF_PROMPT;
           const rawInstructions = aiSettings.instructions?.trim();
-          const systemPrompt = (rawInstructions && !rawInstructions.includes("Le re lund ke") && !rawInstructions.includes("Bantai") && rawInstructions !== "Always reply in Hindi or Hinglish." && rawInstructions !== "You are a helpful assistant. Always reply in Hindi or Hinglish. Keep it friendly and concise.")
-            ? rawInstructions
-            : DEFAULT_BANTAI_PROMPT;
+          
+          let systemPrompt = defaultPrompt;
+          if (rawInstructions && 
+              rawInstructions !== AI_FILTER_ON_PROMPT && 
+              rawInstructions !== AI_FILTER_OFF_PROMPT && 
+              rawInstructions !== DEFAULT_BANTAI_PROMPT &&
+              !rawInstructions.includes("Le re lund ke") && 
+              !rawInstructions.includes("Bantai") && 
+              rawInstructions !== "Always reply in Hindi or Hinglish." && 
+              rawInstructions !== "You are a helpful assistant. Always reply in Hindi or Hinglish. Keep it friendly and concise.") {
+            systemPrompt = rawInstructions;
+          } else {
+            systemPrompt = defaultPrompt;
+          }
 
           // Contextual thread awareness: check if user is replying to a previous message
           let userPromptText = `User @${message.author.username} says: ${cleanContent}`;
