@@ -502,16 +502,46 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
+// Helper to identify the target/managed guild ID (e.g. Fx Conquerors)
+export function getManagedGuildId(): string | null {
+  if (process.env.GUILD_ID) {
+    return process.env.GUILD_ID;
+  }
+  const db = getDb();
+  if (db.auditLogChannelId) {
+    const ch = client.channels.cache.get(db.auditLogChannelId);
+    const gid = ch && 'guildId' in ch ? (ch as any).guildId : (ch as any)?.guild?.id;
+    if (gid) return gid;
+  }
+  if (db.welcomeSettings?.channelId) {
+    const ch = client.channels.cache.get(db.welcomeSettings.channelId);
+    const gid = ch && 'guildId' in ch ? (ch as any).guildId : (ch as any)?.guild?.id;
+    if (gid) return gid;
+  }
+  const fxGuild = client.guilds.cache.find(g => /fx\s*conquerors?/i.test(g.name));
+  if (fxGuild) return fxGuild.id;
+  return null;
+}
+
 // Event: Member Joins (Welcome & Auto-role)
 client.on('guildMemberAdd', async (member) => {
   const db = getDb();
-  addLog(`Member joined: ${member.user.tag}`, 'info');
+  addLog(`Member joined: ${member.user.tag} in ${member.guild.name}`, 'info');
 
   // Welcome Message
   if (db.welcomeSettings.enabled && db.welcomeSettings.channelId) {
     try {
+      const cachedChannel = client.channels.cache.get(db.welcomeSettings.channelId);
+      const cachedGuildId = cachedChannel && 'guildId' in cachedChannel ? (cachedChannel as any).guildId : (cachedChannel as any)?.guild?.id;
+      if (cachedGuildId && member.guild.id !== cachedGuildId) {
+        return;
+      }
+
       const channel = await client.channels.fetch(db.welcomeSettings.channelId);
       if (channel && channel.isTextBased()) {
+        const channelGuildId = 'guildId' in channel ? (channel as any).guildId : (channel as any).guild?.id;
+        if (channelGuildId && member.guild.id !== channelGuildId) return;
+
         const messageTemplate = db.welcomeSettings.message || "Welcome to the server, {user}!";
         const welcomeText = messageTemplate
           .replace(/{user}/g, `<@${member.id}>`)
@@ -542,12 +572,18 @@ client.on('guildMemberAdd', async (member) => {
   // Auto Role
   if (db.welcomeSettings.autoRoleId) {
     try {
+      const cachedChannel = db.welcomeSettings.channelId ? client.channels.cache.get(db.welcomeSettings.channelId) : null;
+      const targetGuildId = cachedChannel && 'guildId' in cachedChannel ? (cachedChannel as any).guildId : (cachedChannel as any)?.guild?.id;
+      if (targetGuildId && member.guild.id !== targetGuildId) {
+        return;
+      }
+
       const role = member.guild.roles.cache.get(db.welcomeSettings.autoRoleId);
       if (role) {
         await member.roles.add(role);
         addLog(`Assigned auto-role (${role.name}) to ${member.user.username}`, 'info');
       } else {
-        addLog(`Auto-role with ID ${db.welcomeSettings.autoRoleId} not found`, 'warn');
+        addLog(`Auto-role with ID ${db.welcomeSettings.autoRoleId} not found in ${member.guild.name}`, 'warn');
       }
     } catch (err: any) {
       addLog(`Failed to assign auto-role to ${member.user.username}: ${err.message}`, 'error');
@@ -558,12 +594,21 @@ client.on('guildMemberAdd', async (member) => {
 // Event: Member Leaves (Goodbye Message)
 client.on('guildMemberRemove', async (member) => {
   const db = getDb();
-  addLog(`Member left: ${member.user.tag}`, 'info');
+  addLog(`Member left: ${member.user.tag} from ${member.guild.name}`, 'info');
 
   if (db.leaveSettings && db.leaveSettings.enabled && db.leaveSettings.channelId) {
     try {
+      const cachedChannel = client.channels.cache.get(db.leaveSettings.channelId);
+      const cachedGuildId = cachedChannel && 'guildId' in cachedChannel ? (cachedChannel as any).guildId : (cachedChannel as any)?.guild?.id;
+      if (cachedGuildId && member.guild.id !== cachedGuildId) {
+        return;
+      }
+
       const channel = await client.channels.fetch(db.leaveSettings.channelId);
       if (channel && channel.isTextBased()) {
+        const channelGuildId = 'guildId' in channel ? (channel as any).guildId : (channel as any).guild?.id;
+        if (channelGuildId && member.guild.id !== channelGuildId) return;
+
         const messageTemplate = db.leaveSettings.message || "Goodbye {user}, we will miss you!";
         const goodbyeText = messageTemplate
           .replace(/{user}/g, member.user.username)
@@ -585,20 +630,38 @@ client.on('guildMemberRemove', async (member) => {
 client.on('messageDelete', async (message) => {
   if (message.partial) return; 
   if (message.author?.bot) return;
+  if (!message.guildId) return;
 
   const db = getDb();
   if (!db.auditLogChannelId) return;
 
+  // Fast check: ignore if audit log channel is cached and belongs to a different server
+  const cachedLogChannel = client.channels.cache.get(db.auditLogChannelId);
+  const cachedGuildId = cachedLogChannel && 'guildId' in cachedLogChannel ? (cachedLogChannel as any).guildId : (cachedLogChannel as any)?.guild?.id;
+  if (cachedGuildId && message.guildId !== cachedGuildId) {
+    return;
+  }
+
   try {
     const logChannel = await client.channels.fetch(db.auditLogChannelId);
     if (logChannel && logChannel.isTextBased()) {
+      const logGuildId = 'guildId' in logChannel ? (logChannel as any).guildId : (logChannel as any).guild?.id;
+      // Strictly ignore deletions that occurred in any other server
+      if (!logGuildId || message.guildId !== logGuildId) return;
+
+      let contentValue = message.content || '*No text content (likely an attachment)*';
+      if (message.attachments && message.attachments.size > 0) {
+        const fileNames = message.attachments.map(a => a.name || 'attachment').join(', ');
+        contentValue = message.content ? `${message.content}\n📎 **Attachments:** ${fileNames}` : `📎 **Attachments:** ${fileNames}`;
+      }
+
       const embed = new EmbedBuilder()
         .setTitle('🗑️ Message Deleted')
         .setColor(0xE74C3C) // Red
         .addFields(
           { name: 'Author', value: `${message.author} (${message.author.tag})`, inline: true },
           { name: 'Channel', value: `${message.channel}`, inline: true },
-          { name: 'Content', value: message.content || '*No text content (likely an attachment)*' }
+          { name: 'Content', value: contentValue.slice(0, 1024) }
         )
         .setTimestamp();
       
@@ -614,21 +677,36 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
   if (oldMessage.partial || newMessage.partial) return;
   if (oldMessage.author?.bot) return;
   if (oldMessage.content === newMessage.content) return; 
+  if (!oldMessage.guildId) return;
 
   const db = getDb();
   if (!db.auditLogChannelId) return;
 
+  // Fast check: ignore if audit log channel is cached and belongs to a different server
+  const cachedLogChannel = client.channels.cache.get(db.auditLogChannelId);
+  const cachedGuildId = cachedLogChannel && 'guildId' in cachedLogChannel ? (cachedLogChannel as any).guildId : (cachedLogChannel as any)?.guild?.id;
+  if (cachedGuildId && oldMessage.guildId !== cachedGuildId) {
+    return;
+  }
+
   try {
     const logChannel = await client.channels.fetch(db.auditLogChannelId);
     if (logChannel && logChannel.isTextBased()) {
+      const logGuildId = 'guildId' in logChannel ? (logChannel as any).guildId : (logChannel as any).guild?.id;
+      // Strictly ignore edits that occurred in any other server
+      if (!logGuildId || oldMessage.guildId !== logGuildId) return;
+
+      const beforeContent = (oldMessage.content || '*Empty*').slice(0, 1024);
+      const afterContent = (newMessage.content || '*Empty*').slice(0, 1024);
+
       const embed = new EmbedBuilder()
         .setTitle('✏️ Message Edited')
         .setColor(0xF39C12) // Orange
         .addFields(
           { name: 'Author', value: `${oldMessage.author} (${oldMessage.author.tag})`, inline: true },
           { name: 'Channel', value: `${oldMessage.channel}`, inline: true },
-          { name: 'Before', value: oldMessage.content || '*Empty*' },
-          { name: 'After', value: newMessage.content || '*Empty*' }
+          { name: 'Before', value: beforeContent },
+          { name: 'After', value: afterContent }
         )
         .setTimestamp();
 
@@ -650,6 +728,10 @@ client.on('messageCreate', async (message) => {
 
   // Check if sender is Administrator
   const isAdmin = member?.permissions.has(PermissionsBitField.Flags.Administrator) || false;
+
+  // Check if message belongs to the managed/target guild (e.g. Fx Conquerors)
+  const managedGuildId = getManagedGuildId();
+  const isManagedGuild = !managedGuildId || !message.guildId || message.guildId === managedGuildId;
 
   // 1. Photo-Only Channels Enforcement
   if (db.photoOnlyChannels.includes(channelId)) {
@@ -673,8 +755,8 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // 2. Auto-Moderation Checks (Ignore Admins)
-  if (!isAdmin) {
+  // 2. Auto-Moderation Checks (Ignore Admins, only in managed guild)
+  if (!isAdmin && isManagedGuild) {
     // A. Link Blocker
     if (db.autoMod.blockLinks) {
       const containsLink = /(https?:\/\/[^\s]+|discord\.gg\/[^\s]+)/gi.test(message.content);
@@ -742,7 +824,7 @@ client.on('messageCreate', async (message) => {
   }
 
   // 3. Optional: Chat-based Rank command
-  if (message.content.trim().toLowerCase() === '!rank') {
+  if (message.content.trim().toLowerCase() === '!rank' && isManagedGuild) {
     if (db.levelingSettings.enabled) {
       const userXp = db.xpData[userId];
       const level = userXp?.level || 0;
@@ -914,21 +996,23 @@ client.on('messageCreate', async (message) => {
     return void message.reply(responseMsg);
   }
 
-  // 4. Custom Triggers (Auto-responders)
-  const contentTrim = message.content.trim().toLowerCase();
-  const matchedTrigger = db.triggers.find(t => contentTrim === t.trigger.toLowerCase());
-  
-  if (matchedTrigger) {
-    try {
-      await message.channel.send(matchedTrigger.reply);
-      addLog(`Trigger matched: "${matchedTrigger.trigger}" in #${(message.channel as TextChannel).name}`, 'info');
-    } catch (err: any) {
-      addLog(`Failed to send trigger reply: ${err.message}`, 'error');
+  // 4. Custom Triggers (Auto-responders - managed guild only)
+  if (isManagedGuild) {
+    const contentTrim = message.content.trim().toLowerCase();
+    const matchedTrigger = db.triggers.find(t => contentTrim === t.trigger.toLowerCase());
+    
+    if (matchedTrigger) {
+      try {
+        await message.channel.send(matchedTrigger.reply);
+        addLog(`Trigger matched: "${matchedTrigger.trigger}" in #${(message.channel as TextChannel).name}`, 'info');
+      } catch (err: any) {
+        addLog(`Failed to send trigger reply: ${err.message}`, 'error');
+      }
     }
   }
 
-  // 5. Leveling & XP system (No Cooldown for Admins, 1 min cooldown for normal users)
-  if (db.levelingSettings.enabled) {
+  // 5. Leveling & XP system (No Cooldown for Admins, 1 min cooldown for normal users - managed guild only)
+  if (db.levelingSettings.enabled && isManagedGuild) {
     const now = Date.now();
     const userXp: XpRecord = db.xpData[userId] || {
       xp: 0,
